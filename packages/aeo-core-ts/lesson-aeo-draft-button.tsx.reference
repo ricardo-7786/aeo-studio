@@ -1,0 +1,460 @@
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Copy, ExternalLink, Sparkles, FileJson } from "lucide-react";
+import {
+  useAeoAcademyProfile,
+  useGenerateAeoDraft,
+  AeoProfileRequiredClientError,
+  type AeoDraftResult,
+} from "@/hooks/use-lessons";
+import { useToast } from "@/hooks/use-toast";
+import { CODA_ORANGE } from "@/lib/coda-ui";
+
+/** 로그인된 네이버 계정 기준 글쓰기 창 */
+const NAVER_WRITE_URL = "https://blog.naver.com/GoBlogWrite.naver";
+
+type Props = {
+  lessonId: number;
+  /** 핵심 코칭·녹음이 없어도 버튼은 보이되, 서버가 에러 안내 */
+  enabled: boolean;
+};
+
+type ProfileForm = {
+  academyKey: string;
+  name: string;
+  location: string;
+  address: string;
+  phone: string;
+  url: string;
+  services: string;
+  evidence: string;
+};
+
+const emptyForm = (academyKey = ""): ProfileForm => ({
+  academyKey,
+  name: academyKey,
+  location: "",
+  address: "",
+  phone: "",
+  url: "",
+  services: "보컬, 미디작곡, 기타, 피아노",
+  evidence: "",
+});
+
+export function LessonAeoDraftButton({ lessonId, enabled }: Props) {
+  const generate = useGenerateAeoDraft(lessonId);
+  const { fetchProfile, saveProfile } = useAeoAcademyProfile(lessonId);
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [draft, setDraft] = useState<AeoDraftResult | null>(null);
+  const [includeStt, setIncludeStt] = useState(true);
+  const [tab, setTab] = useState<"tistory" | "naver" | "jsonld" | "source">("tistory");
+  const [checking, setChecking] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [form, setForm] = useState<ProfileForm>(emptyForm());
+  const [needAcademyKey, setNeedAcademyKey] = useState(false);
+
+  const runGenerate = async () => {
+    const result = await generate.mutateAsync({ includeStt, maxSttClips: 12 });
+    setDraft(result);
+    setTab("tistory");
+    setOpen(true);
+  };
+
+  const onGenerate = async () => {
+    setChecking(true);
+    try {
+      const status = await fetchProfile();
+      if (!status.configured) {
+        setNeedAcademyKey(!status.academyKey);
+        setForm(
+          status.profile
+            ? {
+                academyKey: status.profile.academyKey,
+                name: status.profile.name,
+                location: status.profile.location,
+                address: status.profile.address,
+                phone: status.profile.phone,
+                url: status.profile.url,
+                services: status.profile.services,
+                evidence: status.profile.evidence,
+              }
+            : emptyForm(status.academyKey),
+        );
+        setProfileOpen(true);
+        return;
+      }
+      await runGenerate();
+    } catch (err) {
+      if (err instanceof AeoProfileRequiredClientError) {
+        setNeedAcademyKey(!err.academyKey);
+        setForm(emptyForm(err.academyKey));
+        setProfileOpen(true);
+        return;
+      }
+      toast({
+        title: "AEO 준비 실패",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const onSaveProfileAndGenerate = async () => {
+    const name = form.name.trim();
+    const academyKey = (form.academyKey || name).trim();
+    if (!name) {
+      toast({ title: "학원명을 입력해 주세요.", variant: "destructive" });
+      return;
+    }
+    if (needAcademyKey && !academyKey) {
+      toast({ title: "학원명을 입력해 주세요.", variant: "destructive" });
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await saveProfile({
+        academyKey: needAcademyKey ? academyKey : undefined,
+        name,
+        location: form.location.trim(),
+        address: form.address.trim(),
+        phone: form.phone.trim(),
+        url: form.url.trim(),
+        services: form.services.trim(),
+        evidence: form.evidence.trim(),
+        priceRange: "$$",
+        openingHours: "",
+      });
+      setProfileOpen(false);
+      toast({ title: "학원 프로필이 저장되었습니다." });
+      await runGenerate();
+    } catch (err) {
+      toast({
+        title: "프로필 저장 실패",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: `${label} 복사됨` });
+    } catch {
+      toast({ title: "복사 실패", variant: "destructive" });
+    }
+  };
+
+  const display =
+    tab === "tistory"
+      ? draft?.markdown ?? ""
+      : tab === "naver"
+        ? draft?.naver?.body ?? ""
+        : tab === "jsonld"
+          ? draft
+            ? JSON.stringify(draft.jsonLd, null, 2)
+            : ""
+          : draft?.sourceText ?? "";
+
+  const copyLabel =
+    tab === "tistory"
+      ? "티스토리 본문"
+      : tab === "naver"
+        ? "네이버 본문"
+        : tab === "jsonld"
+          ? "JSON-LD"
+          : "원본";
+
+  const naverKeywordsText = draft?.naver?.keywords?.length
+    ? draft.naver.keywords.join(", ")
+    : "";
+
+  const dialogTitle =
+    tab === "naver"
+      ? draft?.naver?.title || "네이버 블로그 초안"
+      : draft?.title || "티스토리 AEO 초안";
+
+  const busy = checking || generate.isPending || savingProfile;
+
+  return (
+    <>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300"
+            checked={includeStt}
+            onChange={(e) => setIncludeStt(e.target.checked)}
+            disabled={!enabled || busy}
+          />
+          중요 포인트 녹음 STT 모두 포함 (같은 날 여러 클립 → 한 글)
+        </label>
+        <Button
+          type="button"
+          disabled={!enabled || busy}
+          onClick={() => void onGenerate()}
+          className="gap-2 rounded-xl text-white"
+          style={{ backgroundColor: CODA_ORANGE }}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {generate.isPending
+            ? "AEO 글 만드는 중…"
+            : checking
+              ? "학원 프로필 확인 중…"
+              : "AEO 홍보글 만들기"}
+        </Button>
+      </div>
+      <p className="text-xs text-slate-500">
+        학생에게는 보이지 않습니다. 티스토리(AEO)·네이버(SEO) 두 버전이 함께 만들어집니다.
+      </p>
+
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>학원 AEO 프로필</DialogTitle>
+            <DialogDescription>
+              이 학원에서 처음 AEO를 쓸 때 한 번만 저장합니다. 같은 학원 강사와 공유됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="aeo-name">학원명 *</Label>
+              <Input
+                id="aeo-name"
+                value={form.name}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setForm((f) => ({
+                    ...f,
+                    name,
+                    academyKey: needAcademyKey ? name : f.academyKey,
+                  }));
+                }}
+                placeholder="예: 엠보컬 아카데미"
+              />
+            </div>
+            {needAcademyKey ? null : (
+              <p className="text-xs text-slate-500">학원 키: {form.academyKey || "(레슨 학원)"}</p>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="aeo-location">위치 / 역세권</Label>
+              <Input
+                id="aeo-location"
+                value={form.location}
+                onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+                placeholder="예: 화정역 2번 출구"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="aeo-address">주소</Label>
+              <Input
+                id="aeo-address"
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="aeo-phone">전화</Label>
+                <Input
+                  id="aeo-phone"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="aeo-url">웹사이트</Label>
+                <Input
+                  id="aeo-url"
+                  value={form.url}
+                  onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                  placeholder="https://"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="aeo-services">주요 서비스 (쉼표 구분)</Label>
+              <Input
+                id="aeo-services"
+                value={form.services}
+                onChange={(e) => setForm((f) => ({ ...f, services: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="aeo-evidence">근거 / 수치 문구</Label>
+              <Textarea
+                id="aeo-evidence"
+                value={form.evidence}
+                onChange={(e) => setForm((f) => ({ ...f, evidence: e.target.value }))}
+                placeholder="예: 20년 경력 교수 직강, CODA 레슨 피드백 운용"
+                className="min-h-[88px]"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setProfileOpen(false)} disabled={savingProfile}>
+              취소
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void onSaveProfileAndGenerate()}
+              disabled={savingProfile || generate.isPending}
+              className="text-white"
+              style={{ backgroundColor: CODA_ORANGE }}
+            >
+              {savingProfile || generate.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              저장 후 글 만들기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="pr-8">{dialogTitle}</DialogTitle>
+            <DialogDescription>
+              {draft?.sttSnippets.length
+                ? `녹음 STT ${draft.sttSnippets.length}개 · `
+                : ""}
+              {tab === "naver"
+                ? "네이버 SEO · 지역 키워드·사진 가이드 포함"
+                : tab === "tistory"
+                  ? "티스토리 AEO · 데이터·Q&A 구조"
+                  : "복사 후 붙여넣기"}
+              {draft?.naver?.keywords?.length && tab === "naver"
+                ? ` · 키워드: ${draft.naver.keywords.slice(0, 3).join(", ")}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              variant={tab === "tistory" ? "default" : "outline"}
+              className="rounded-lg"
+              onClick={() => setTab("tistory")}
+            >
+              티스토리 (AEO)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={tab === "naver" ? "default" : "outline"}
+              className="rounded-lg"
+              onClick={() => setTab("naver")}
+            >
+              네이버 (SEO)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={tab === "jsonld" ? "default" : "outline"}
+              className="rounded-lg gap-1"
+              onClick={() => setTab("jsonld")}
+            >
+              <FileJson className="h-3.5 w-3.5" />
+              JSON-LD
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={tab === "source" ? "default" : "outline"}
+              className="rounded-lg"
+              onClick={() => setTab("source")}
+            >
+              원본(익명)
+            </Button>
+            {tab === "naver" ? (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button asChild type="button" size="sm" variant="outline" className="rounded-lg gap-1">
+                  <a href={NAVER_WRITE_URL} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    네이버 글쓰기 창 열기
+                  </a>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg gap-1"
+                  onClick={() => void copyText(draft?.naver?.title ?? "", "네이버 제목")}
+                  disabled={!draft?.naver?.title}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  제목
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg gap-1"
+                  onClick={() => void copyText(draft?.naver?.body ?? "", "네이버 본문")}
+                  disabled={!draft?.naver?.body}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  본문
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg gap-1"
+                  onClick={() => void copyText(naverKeywordsText, "네이버 키워드")}
+                  disabled={!naverKeywordsText}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  키워드
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-lg gap-1 ml-auto"
+                onClick={() => void copyText(display, copyLabel)}
+                disabled={!display}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                복사
+              </Button>
+            )}
+          </div>
+
+          {tab === "naver" && naverKeywordsText ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              태그/키워드: {naverKeywordsText}
+            </p>
+          ) : null}
+
+          <Textarea
+            readOnly
+            value={display}
+            className="min-h-[360px] flex-1 font-mono text-sm rounded-xl"
+          />
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

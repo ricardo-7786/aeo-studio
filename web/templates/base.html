@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AEO Studio{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>AEO Studio</h1>
+    <nav>
+      <a href="/">대시보드</a>
+      <a href="/generate">글 생성</a>
+      <a href="/businesses">업체 관리</a>
+      <a href="/drafts">초안 목록</a>
+      <a href="/posts">발행 URL</a>
+      <a href="/posts/register">URL 등록</a>
+    </nav>
+  </header>
+  <main>
+    {% if not db_ok %}
+    <div class="alert warn">
+      DATABASE_URL이 없습니다. 업체·초안·발행 URL DB 기능은 비활성입니다. .env에 PostgreSQL 연결을 추가하세요.
+    </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

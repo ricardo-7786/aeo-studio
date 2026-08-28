@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}발행 URL 등록 — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>발행 URL 등록</h2>
+  <p>블로그에 붙여넣기 후 실제 URL을 등록하면 순위 추적(3단계) 준비가 됩니다.</p>
+  <form method="post" action="/posts/register">
+    <label for="business_key">업체</label>
+    <select id="business_key" name="business_key" required>
+      {% for b in businesses %}
+      <option value="{{ b.business_key }}"
+        {% if default_key == b.business_key %}selected{% endif %}>
+        {{ b.name }} ({{ b.business_key }})
+      </option>
+      {% endfor %}
+    </select>
+
+    <label for="channel">채널</label>
+    <select id="channel" name="channel" required>
+      <option value="naver">네이버 블로그</option>
+      <option value="tistory">티스토리</option>
+      <option value="wordpress">WordPress</option>
+    </select>
+
+    <label for="published_url">발행 URL</label>
+    <input id="published_url" name="published_url" type="url" required placeholder="https://blog.naver.com/...">
+
+    <label for="target_keyword">추적 키워드</label>
+    <input id="target_keyword" name="target_keyword" placeholder="화정역 보컬학원">
+
+    <label for="target_engine">검색 엔진</label>
+    <select id="target_engine" name="target_engine">
+      <option value="naver">네이버</option>
+      <option value="google">Google</option>
+    </select>
+
+    <label for="draft_id">연결 초안 ID (선택)</label>
+    <input id="draft_id" name="draft_id" value="{{ default_draft_id or '' }}">
+
+    <label>
+      <input type="checkbox" name="is_monitored" value="on" checked>
+      순위 모니터링 활성
+    </label>
+
+    <button type="submit">등록</button>
+    <a class="btn secondary" href="/posts">취소</a>
+  </form>
+</div>
+{% endblock %}

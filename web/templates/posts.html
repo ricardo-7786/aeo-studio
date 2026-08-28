@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}발행 URL — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="actions">
+    <h2 style="flex:1;margin:0;">발행 URL · 순위 추적 준비</h2>
+    <a class="btn" href="/posts/register">+ URL 등록</a>
+  </div>
+  <form method="get" action="/posts" style="margin-bottom:1rem;">
+    <label for="business_key">업체 필터</label>
+    <select id="business_key" name="business_key" onchange="this.form.submit()">
+      <option value="">전체</option>
+      {% for b in businesses %}
+      <option value="{{ b.business_key }}" {% if filter_key == b.business_key %}selected{% endif %}>
+        {{ b.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>등록일</th><th>업체</th><th>채널</th><th>키워드</th><th>순위</th><th>URL</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in posts %}
+      <tr>
+        <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
+        <td><code>{{ p.academy_key }}</code></td>
+        <td>{{ p.channel }}</td>
+        <td>{{ p.target_keyword or '—' }}</td>
+        <td>
+          {% if p.current_rank %}
+          <strong>{{ p.current_rank }}</strong>위
+          {% else %}
+          <span class="badge">대기</span>
+          {% endif %}
+        </td>
+        <td><a href="{{ p.published_url }}" target="_blank" rel="noopener">열기</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">등록된 URL이 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p style="color:#6b7280;font-size:0.9rem;margin-top:1rem;">
+    순위 자동 조회는 3단계(SerpAPI 크론)에서 연결됩니다.
+  </p>
+</div>
+{% endblock %}

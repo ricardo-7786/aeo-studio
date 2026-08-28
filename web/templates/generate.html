@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}글 생성 — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>티스토리(AEO) + 네이버(SEO) 동시 생성</h2>
+  <p class="hint">텍스트 메모, 음성 파일 업로드, 앱 내 녹음 중 하나 이상이면 됩니다. 여러 포인트 녹음도 가능합니다.</p>
+  {% if error %}
+  <div class="alert error">{{ error }}</div>
+  {% endif %}
+
+  <form id="generate-form" method="post" action="/generate" enctype="multipart/form-data">
+    <label for="business_key">업체 선택</label>
+    <select id="business_key" name="business_key">
+      <option value="">(.env 기본값)</option>
+      {% for b in businesses %}
+      <option value="{{ b.business_key }}"
+        {% if default_key == b.business_key %}selected{% endif %}>
+        {{ b.name }} ({{ b.business_key }})
+      </option>
+      {% endfor %}
+    </select>
+
+    <label for="lesson_title">제목/주제 (선택)</label>
+    <input id="lesson_title" name="lesson_title" value="{{ lesson_title or '현장 기록' }}">
+
+    <label for="source_text">현장 메모 (선택 — STT와 함께 쓰면 보조 코칭 포인트로 반영)</label>
+    <textarea id="source_text" name="source_text" placeholder="오늘 레슨에서...">{{ source_text or '' }}</textarea>
+
+    <div class="input-section">
+      <h3>음성 파일 업로드</h3>
+      <p class="hint">m4a, mp3, wav, webm 등 · 파일당 25MB 이하 · 여러 개 선택 가능</p>
+      <input id="audio_files" name="audio_files" type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" multiple>
+      <ul id="upload-file-list" class="clip-list"></ul>
+    </div>
+
+    <div class="input-section recorder-panel">
+      <h3>앱에서 직접 녹음</h3>
+      <p class="hint">짧은 포인트별로 여러 번 녹음할 수 있습니다. 마이크 권한이 필요합니다.</p>
+      <div class="recorder-controls">
+        <button type="button" id="rec-start-btn" class="btn">녹음 시작</button>
+        <button type="button" id="rec-stop-btn" class="btn secondary" disabled>녹음 중지</button>
+        <span id="rec-status" class="rec-status">대기 중</span>
+      </div>
+      <ul id="recorded-clips" class="clip-list"></ul>
+    </div>
+
+    <div class="input-section template-panel">
+      <h3>상위 노출 템플릿 (AEO Template)</h3>
+      <p class="hint">키워드로 SerpAPI 상위 글 구조를 분석해 글 골격에 반영합니다. SerpAPI 없으면 참고 URL만 입력하세요.</p>
+      <label>
+        <input type="checkbox" name="use_template" value="on"
+          {% if use_template %}checked{% endif %}>
+        상위 노출 템플릿 적용
+      </label>
+
+      <label for="target_keyword">타겟 키워드</label>
+      <input id="target_keyword" name="target_keyword"
+        value="{{ target_keyword or '' }}" placeholder="화정역 보컬학원">
+
+      <label for="template_channel">검색 채널</label>
+      <select id="template_channel" name="template_channel">
+        <option value="naver" {% if template_channel == 'google' %}{% else %}selected{% endif %}>네이버</option>
+        <option value="google" {% if template_channel == 'google' %}selected{% endif %}>Google</option>
+      </select>
+
+      <label for="manual_reference_urls">참고 URL (선택, 한 줄에 하나 — SerpAPI 대신/추가)</label>
+      <textarea id="manual_reference_urls" name="manual_reference_urls" rows="3"
+        placeholder="https://blog.naver.com/...">{{ manual_reference_urls or '' }}</textarea>
+
+      <label>
+        <input type="checkbox" name="force_template_refresh" value="on">
+        캐시 무시하고 템플릿 재추출
+      </label>
+    </div>
+
+    <label>
+      <input type="checkbox" name="save_draft" value="on" {% if db_ok %}checked{% else %}disabled{% endif %}>
+      DB에 초안 저장
+    </label>
+
+    <button type="submit" id="submit-btn">생성하기</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/recorder.js"></script>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'new' %}업체 추가{% else %}업체 수정{% endif %} — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>{% if mode == 'new' %}업체 추가{% else %}업체 수정{% endif %}</h2>
+  <form method="post" action="/businesses/save">
+    <label for="business_key">업체 키 (영문·숫자·하이픈)</label>
+    <input id="business_key" name="business_key" required
+      value="{{ business.business_key if business else '' }}"
+      {% if mode == 'edit' %}readonly{% endif %}>
+
+    <label for="industry">업종</label>
+    <select id="industry" name="industry">
+      {% for ind in industries %}
+      <option value="{{ ind }}"
+        {% if business and business.industry == ind %}selected{% elif not business and ind == 'education' %}selected{% endif %}>
+        {{ industry_meta[ind].label }}
+      </option>
+      {% endfor %}
+    </select>
+
+    <label for="name">업체명</label>
+    <input id="name" name="name" required value="{{ business.name if business else '' }}">
+
+    <label for="location">위치 (역·동네)</label>
+    <input id="location" name="location" value="{{ business.location if business else '' }}">
+
+    <label for="address">주소</label>
+    <input id="address" name="address" value="{{ business.address if business else '' }}">
+
+    <label for="phone">전화</label>
+    <input id="phone" name="phone" value="{{ business.phone if business else '' }}">
+
+    <label for="url">웹사이트</label>
+    <input id="url" name="url" type="url" value="{{ business.url if business else '' }}">
+
+    <label for="services">서비스 (쉼표 구분)</label>
+    <input id="services" name="services" value="{{ business.services if business else '' }}">
+
+    <label for="evidence">근거 데이터 (수치·실적 등)</label>
+    <textarea id="evidence" name="evidence">{{ business.evidence if business else '' }}</textarea>
+
+    <label for="geo_lat">위도</label>
+    <input id="geo_lat" name="geo_lat" value="{{ business.geo_lat if business and business.geo_lat else '' }}">
+
+    <label for="geo_lng">경도</label>
+    <input id="geo_lng" name="geo_lng" value="{{ business.geo_lng if business and business.geo_lng else '' }}">
+
+    <label for="price_range">가격대</label>
+    <input id="price_range" name="price_range" value="{{ business.price_range if business else '$$' }}">
+
+    <label for="opening_hours">영업시간</label>
+    <input id="opening_hours" name="opening_hours" value="{{ business.opening_hours if business else '' }}">
+
+    <button type="submit">저장</button>
+    <a class="btn secondary" href="/businesses">취소</a>
+  </form>
+</div>
+{% endblock %}

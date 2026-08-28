@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}초안 상세 — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>{{ draft.lesson_title }}</h2>
+  <p>
+    <span class="badge">{{ draft.academy_key }}</span>
+    {{ draft.generated_at.strftime('%Y-%m-%d %H:%M') }}
+  </p>
+  <div class="actions">
+    <a class="btn secondary" href="/posts/register?business_key={{ draft.academy_key }}&draft_id={{ draft.id }}">발행 URL 등록</a>
+    <a class="btn secondary" href="/drafts">목록</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3>원본</h3>
+  <div class="copy-box">{{ draft.source_text }}</div>
+</div>
+
+<div class="card">
+  <h3>티스토리 Markdown</h3>
+  <div class="copy-box" id="tistory-md">{{ draft.tistory_markdown }}</div>
+  <button type="button" onclick="copyText('tistory-md')">복사</button>
+</div>
+
+<div class="card">
+  <h3>네이버 — {{ draft.naver_title }}</h3>
+  <div class="copy-box" id="naver-body">{{ draft.naver_body }}</div>
+  <button type="button" onclick="copyText('naver-body')">복사</button>
+</div>
+
+<script>
+function copyText(id) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.innerText).then(() => alert('복사했습니다.'));
+}
+</script>
+{% endblock %}

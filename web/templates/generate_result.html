@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}생성 결과 — AEO Studio{% endblock %}
+{% block content %}
+<div class="alert ok">
+  생성 완료{% if result.draft_id %} · draft_id: <code>{{ result.draft_id }}</code>{% endif %}
+  {% if stt_snippets and stt_snippets|length > 0 %}
+  · STT {{ stt_snippets|length }}개 클립 반영
+  {% endif %}
+  {% if template %}
+  · 템플릿: {{ template.target_keyword }} ({{ template.channel }})
+  {% endif %}
+</div>
+
+{% if template %}
+<div class="card">
+  <h2>적용된 상위 노출 템플릿</h2>
+  <p><span class="badge">제목 패턴</span> {{ template.recommended_title_pattern }}</p>
+  <p><span class="badge">권장 글자 수</span> 약 {{ template.target_word_count }}자</p>
+  <p><strong>소제목 흐름</strong></p>
+  <ol>
+    {% for s in template.section_structure %}
+    <li>{{ s }}</li>
+    {% endfor %}
+  </ol>
+  {% if template.qa_pairs %}
+  <p><strong>FAQ 질문 패턴</strong></p>
+  <ul>
+    {% for q in template.qa_pairs %}
+    <li>{{ q }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if stt_snippets and stt_snippets|length > 0 %}
+<div class="card">
+  <h2>STT 변환 결과</h2>
+  {% for s in stt_snippets %}
+  <div class="stt-item">
+    <strong>{{ s.title or ('포인트 ' ~ loop.index) }}</strong>
+    <div class="copy-box">{{ s.text }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>티스토리 / AEO</h2>
+  <p><strong>{{ tistory_title }}</strong></p>
+  <div class="copy-box" id="tistory-md">{{ tistory_markdown }}</div>
+  <button type="button" onclick="copyText('tistory-md')">티스토리 복사</button>
+</div>
+
+<div class="card">
+  <h2>네이버 블로그</h2>
+  <p><strong>{{ naver_title }}</strong></p>
+  <p><span class="badge">키워드</span> {{ naver_keywords }}</p>
+  <div class="copy-box" id="naver-body">{{ naver_body }}</div>
+  <button type="button" onclick="copyText('naver-body')">네이버 본문 복사</button>
+</div>
+
+<div class="actions">
+  <a class="btn" href="/generate">다시 생성</a>
+  {% if result.draft_id %}
+  <a class="btn secondary" href="/drafts/{{ result.draft_id }}">초안 상세</a>
+  <a class="btn secondary" href="/posts/register?draft_id={{ result.draft_id }}">발행 URL 등록</a>
+  {% endif %}
+</div>
+
+<script>
+function copyText(id) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.innerText).then(() => alert('복사했습니다.'));
+}
+</script>
+{% endblock %}

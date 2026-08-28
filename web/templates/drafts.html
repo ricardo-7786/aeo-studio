@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}초안 목록 — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>저장된 초안</h2>
+  <form method="get" action="/drafts" style="margin-bottom:1rem;">
+    <label for="business_key">업체 필터</label>
+    <select id="business_key" name="business_key" onchange="this.form.submit()">
+      <option value="">전체</option>
+      {% for b in businesses %}
+      <option value="{{ b.business_key }}" {% if filter_key == b.business_key %}selected{% endif %}>
+        {{ b.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  <table>
+    <thead>
+      <tr><th>일시</th><th>업체</th><th>주제</th><th>네이버 제목</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for d in drafts %}
+      <tr>
+        <td>{{ d.generated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><code>{{ d.academy_key }}</code></td>
+        <td>{{ d.lesson_title }}</td>
+        <td>{{ d.naver_title[:40] }}{% if d.naver_title|length > 40 %}…{% endif %}</td>
+        <td><a href="/drafts/{{ d.id }}">보기</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">저장된 초안이 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
