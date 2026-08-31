@@ -23,6 +23,7 @@ class BusinessRow:
     geo_lng: str | None
     price_range: str
     opening_hours: str
+    adjacent_areas: str = ""
 
 
 def _row_from_record(rec: tuple[Any, ...]) -> BusinessRow:
@@ -40,12 +41,13 @@ def _row_from_record(rec: tuple[Any, ...]) -> BusinessRow:
         geo_lng=rec[10],
         price_range=rec[11] or "$$",
         opening_hours=rec[12] or "",
+        adjacent_areas=(rec[13] if len(rec) > 13 and rec[13] else "") or "",
     )
 
 
 _SELECT = """
 SELECT business_key, industry, name, location, address, phone, url, services, evidence,
-       geo_lat, geo_lng, price_range, opening_hours
+       geo_lat, geo_lng, price_range, opening_hours, adjacent_areas
 FROM businesses
 """
 
@@ -76,8 +78,8 @@ class BusinessRepo:
                     INSERT INTO businesses (
                       business_key, industry, name, location, address, phone, url,
                       services, evidence, geo_lat, geo_lng, price_range, opening_hours,
-                      updated_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, CURRENT_TIMESTAMP)
+                      adjacent_areas, updated_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, CURRENT_TIMESTAMP)
                     ON CONFLICT (business_key) DO UPDATE SET
                       industry = EXCLUDED.industry,
                       name = EXCLUDED.name,
@@ -91,6 +93,7 @@ class BusinessRepo:
                       geo_lng = EXCLUDED.geo_lng,
                       price_range = EXCLUDED.price_range,
                       opening_hours = EXCLUDED.opening_hours,
+                      adjacent_areas = EXCLUDED.adjacent_areas,
                       updated_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -107,6 +110,7 @@ class BusinessRepo:
                         row.geo_lng,
                         row.price_range or "$$",
                         row.opening_hours,
+                        row.adjacent_areas or "",
                     ),
                 )
             conn.commit()

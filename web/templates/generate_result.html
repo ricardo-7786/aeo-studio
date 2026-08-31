@@ -6,16 +6,45 @@
   {% if stt_snippets and stt_snippets|length > 0 %}
   · STT {{ stt_snippets|length }}개 클립 반영
   {% endif %}
-  {% if template %}
-  · 템플릿: {{ template.target_keyword }} ({{ template.channel }})
+  {% if keyword_plan %}
+  · 지역: {{ keyword_plan.focus_area }}
   {% endif %}
 </div>
+
+{% if keyword_plan %}
+<div class="card">
+  <h2>이번 글 키워드 로테이션</h2>
+  <p>
+    <span class="badge">제목 지역</span> {{ keyword_plan.focus_area }}
+    ·
+    <span class="badge">본점</span> {{ keyword_plan.home_area or '—' }}
+    ·
+    순환 {{ keyword_plan.rotation_index + 1 }}/{{ keyword_plan.areas|length }}
+  </p>
+  <p><strong>권장 제목 골격</strong> {{ keyword_plan.title_hint }}</p>
+  {% if keyword_plan.problem_keywords %}
+  <p><strong>STT 문제 키워드</strong> {{ keyword_plan.problem_keywords | join(', ') }}</p>
+  {% else %}
+  <p class="hint">STT에서 감지된 발성 문제 키워드는 없습니다. 원문 고민을 그대로 씁니다.</p>
+  {% endif %}
+  <p class="hint">순환 풀: {{ keyword_plan.areas | join(', ') }}</p>
+</div>
+{% endif %}
 
 {% if template %}
 <div class="card">
   <h2>적용된 상위 노출 템플릿</h2>
+  <p><span class="badge">키워드</span> {{ template.target_keyword }} · {{ template.channel }}</p>
   <p><span class="badge">제목 패턴</span> {{ template.recommended_title_pattern }}</p>
   <p><span class="badge">권장 글자 수</span> 약 {{ template.target_word_count }}자</p>
+  {% if template.source_urls %}
+  <p><strong>참고 URL</strong></p>
+  <ul>
+    {% for u in template.source_urls %}
+    <li><a href="{{ u }}" target="_blank" rel="noopener">{{ u }}</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <p><strong>소제목 흐름</strong></p>
   <ol>
     {% for s in template.section_structure %}
@@ -29,6 +58,9 @@
     <li>{{ q }}</li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if template.notes %}
+  <p class="hint">{{ template.notes }}</p>
   {% endif %}
 </div>
 {% endif %}

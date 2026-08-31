@@ -16,6 +16,7 @@ MIGRATIONS = [
     "002_drafts_and_rank_tracking.sql",
     "003_businesses.sql",
     "004_aeo_templates.sql",
+    "005_adjacent_areas.sql",
 ]
 
 

@@ -176,7 +176,7 @@ python scripts/register_post.py \
 |------|------|------|
 | 2 | DB `aeo_templates` + 파일 `.cache/` 캐시 | ✅ |
 | 1 | SerpAPI/수동 URL → 구조 추출 → `/generate` 프롬프트 주입 | ✅ |
-| 3 | 네이버 VIEW Playwright | ⏸ 검증 후 (`core/template/playwright_naver.py`) |
+| 3 | 네이버 VIEW Playwright | ⏸ mobile URL + Jina 폴백 후에도 실패할 때만 |
 
 ```bash
 # DB 마이그레이션 (DATABASE_URL 필요)
@@ -192,6 +192,21 @@ TEMPLATE_CACHE_HOURS=72
 ```
 
 웹 `/generate` → **상위 노출 템플릿 적용** 체크 + 키워드 (+ 선택: 참고 URL)
+
+## 키워드 로테이션
+
+본점 지역(예: 화정)은 본문에 사실대로 두고, **제목·리드 지역**은 인접 상권을 날짜 + 발행 회차로 순환합니다. STT에서 고음 씹힘·호흡 부족 등이 보이면 제목 골격에 붙입니다.
+
+```bash
+# .env
+BUSINESS_ADJACENT_AREAS=행신, 원당, 삼송
+
+python scripts/db_migrate.py   # adjacent_areas 컬럼
+
+python main.py --file ./samples/lesson_note.txt --dual --dry-run --focus-area 행신
+```
+
+웹 `/generate` → **키워드 로테이션**에서 지역을 고르거나 비워 두면 자동 순환.
 
 ## AEO 변환 규칙 (프롬프트에 고정)
 

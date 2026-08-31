@@ -98,6 +98,17 @@ def get_draft(draft_id: str) -> DraftRow | None:
     return _row_from_record(rec) if rec else None
 
 
+def count_drafts(business_key: str) -> int:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM aeo_drafts WHERE academy_key = %s",
+                (business_key.strip(),),
+            )
+            rec = cur.fetchone()
+    return int(rec[0]) if rec else 0
+
+
 def list_drafts(*, business_key: str | None = None, limit: int = 50) -> list[DraftRow]:
     with get_connection() as conn:
         with conn.cursor() as cur:

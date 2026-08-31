@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,14 +20,39 @@ if str(ROOT) not in sys.path:
 load_dotenv(ROOT / ".env")
 
 from config.industry import INDUSTRIES, INDUSTRY_META  # noqa: E402
+from config.settings import load_settings  # noqa: E402
+from core.keyword_rotation import build_keyword_plan  # noqa: E402
 from db.business_repo import BusinessRepo, BusinessRow  # noqa: E402
 from db.connection import is_db_configured  # noqa: E402
 from db.draft_repo import get_draft, list_drafts  # noqa: E402
 from db.post_repo import list_published_posts, register_published_post  # noqa: E402
 from services.content_service import generate_dual_draft  # noqa: E402
+from db.coda_connection import is_coda_db_configured  # noqa: E402
+from db.coda_repo import get_lesson_bundle, list_lessons  # noqa: E402
+from services.coda_service import (  # noqa: E402
+    generate_from_coda_json,
+    generate_from_coda_lesson_id,
+    generate_from_coda_recording_urls,
+    parse_coda_json_text,
+)
+from web.api_v1 import router as api_v1_router  # noqa: E402
 from web.audio_upload import cleanup_temp_audio_files, save_uploaded_audio_files  # noqa: E402
 
 app = FastAPI(title="AEO Studio", version="0.2.0")
+_coda_origins = [
+    o.strip()
+    for o in os.getenv("CODA_ALLOWED_ORIGINS", "http://localhost:5000,http://127.0.0.1:5000").split(",")
+    if o.strip()
+]
+if _coda_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_coda_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+app.include_router(api_v1_router)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
@@ -109,6 +135,7 @@ async def business_save(
     url: str = Form(""),
     services: str = Form(""),
     evidence: str = Form(""),
+    adjacent_areas: str = Form(""),
     geo_lat: str = Form(""),
     geo_lng: str = Form(""),
     price_range: str = Form("$$"),
@@ -129,16 +156,47 @@ async def business_save(
         geo_lng=geo_lng.strip() or None,
         price_range=price_range.strip() or "$$",
         opening_hours=opening_hours.strip(),
+        adjacent_areas=adjacent_areas.strip(),
     )
     BusinessRepo().upsert(row)
     return RedirectResponse(url="/businesses", status_code=303)
+
+
+def _load_coda_lessons_safe() -> list:
+    if not is_coda_db_configured():
+        return []
+    teacher = os.getenv("CODA_TEACHER_NAME", "전창영").strip()
+    try:
+        return list_lessons(teacher_name=teacher, limit=40)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! CODA 레슨 목록 로드 실패: {exc}")
+        return []
 
 
 @app.get("/generate", response_class=HTMLResponse)
 async def generate_form(request: Request, business_key: str = ""):
     businesses = BusinessRepo().list_all() if is_db_configured() else []
     default_key = business_key or os.getenv("DEFAULT_BUSINESS_KEY", "")
-    return _render(request, "generate.html", businesses=businesses, default_key=default_key)
+    preview_plan = None
+    try:
+        preview_plan = build_keyword_plan(
+            load_settings(business_key=default_key or None).business,
+            "",
+        )
+    except Exception:  # noqa: BLE001
+        preview_plan = None
+    coda_teacher = os.getenv("CODA_TEACHER_NAME", "전창영").strip()
+    return _render(
+        request,
+        "generate.html",
+        businesses=businesses,
+        default_key=default_key,
+        preview_plan=preview_plan,
+        default_target_keyword=preview_plan.title_keyword if preview_plan else "",
+        coda_db_ok=is_coda_db_configured(),
+        coda_teacher_name=coda_teacher,
+        coda_lessons=_load_coda_lessons_safe(),
+    )
 
 
 @app.post("/generate", response_class=HTMLResponse)
@@ -154,25 +212,80 @@ async def generate_submit(
     template_channel: str = Form("naver"),
     manual_reference_urls: str = Form(""),
     force_template_refresh: str = Form(""),
+    focus_area: str = Form(""),
+    coda_recording_urls: str = Form(""),
+    coda_json: str = Form(""),
+    coda_teacher_name: str = Form(""),
+    coda_include_stt: str = Form("on"),
+    coda_lesson_id: str = Form(""),
 ):
     key = business_key.strip() or None
     temp_paths: list = []
+    gen_kwargs = dict(
+        business_key=key,
+        save_to_db=save_draft == "on" and is_db_configured(),
+        use_template=use_template == "on",
+        target_keyword=target_keyword,
+        template_channel=template_channel,
+        manual_reference_urls=manual_reference_urls,
+        force_template_refresh=force_template_refresh == "on",
+        focus_area=focus_area.strip() or None,
+    )
     try:
         temp_paths = await save_uploaded_audio_files(audio_files)
-        result = generate_dual_draft(
-            source_text=source_text,
-            audio_paths=temp_paths or None,
-            lesson_title=lesson_title.strip() or "현장 기록",
-            business_key=key,
-            save_to_db=save_draft == "on" and is_db_configured(),
-            use_template=use_template == "on",
-            target_keyword=target_keyword,
-            template_channel=template_channel,
-            manual_reference_urls=manual_reference_urls,
-            force_template_refresh=force_template_refresh == "on",
-        )
+        coda_json_text = coda_json.strip()
+        coda_urls_text = coda_recording_urls.strip()
+        coda_lesson = coda_lesson_id.strip()
+
+        if coda_lesson.isdigit():
+            bundle = get_lesson_bundle(int(coda_lesson))
+            if bundle:
+                if not lesson_title.strip() or lesson_title.strip() == "현장 기록":
+                    lesson_title = bundle.lesson.title or lesson_title
+                if not coda_teacher_name.strip():
+                    coda_teacher_name = bundle.lesson.teacher_name
+            result = generate_from_coda_lesson_id(
+                int(coda_lesson),
+                extra_coaching=source_text.strip(),
+                **gen_kwargs,
+            )
+        elif coda_json_text:
+            payload = parse_coda_json_text(coda_json_text)
+            if lesson_title.strip() and lesson_title.strip() != "현장 기록":
+                payload.setdefault("lessonTitle", lesson_title.strip())
+            if source_text.strip():
+                existing = payload.get("keyCoachingPoints") or payload.get("key_coaching_points") or ""
+                payload["keyCoachingPoints"] = (
+                    f"{existing}\n{source_text.strip()}".strip() if existing else source_text.strip()
+                )
+            result = generate_from_coda_json(payload, **gen_kwargs)
+        elif coda_urls_text:
+            result = generate_from_coda_recording_urls(
+                recording_lines=coda_urls_text,
+                lesson_title=lesson_title.strip() or "현장 기록",
+                key_coaching_points=source_text.strip(),
+                teacher_name=coda_teacher_name.strip(),
+                include_stt=coda_include_stt == "on",
+                **gen_kwargs,
+            )
+        else:
+            result = generate_dual_draft(
+                source_text=source_text,
+                audio_paths=temp_paths or None,
+                lesson_title=lesson_title.strip() or "현장 기록",
+                **gen_kwargs,
+            )
     except Exception as exc:  # noqa: BLE001
         businesses = BusinessRepo().list_all() if is_db_configured() else []
+        preview_plan = None
+        try:
+            preview_plan = build_keyword_plan(
+                load_settings(business_key=key).business,
+                source_text,
+                focus_area_override=focus_area.strip() or None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return _render(
             request,
             "generate.html",
@@ -186,6 +299,17 @@ async def generate_submit(
             target_keyword=target_keyword,
             template_channel=template_channel,
             manual_reference_urls=manual_reference_urls,
+            focus_area=focus_area,
+            force_template_refresh=force_template_refresh == "on",
+            preview_plan=preview_plan,
+            default_target_keyword=preview_plan.title_keyword if preview_plan else "",
+            coda_recording_urls=coda_recording_urls,
+            coda_json=coda_json,
+            coda_teacher_name=coda_teacher_name or os.getenv("CODA_TEACHER_NAME", "전창영"),
+            coda_include_stt=coda_include_stt == "on",
+            coda_lesson_id=coda_lesson_id,
+            coda_db_ok=is_coda_db_configured(),
+            coda_lessons=_load_coda_lessons_safe(),
         )
     finally:
         cleanup_temp_audio_files(temp_paths)
@@ -203,6 +327,7 @@ async def generate_submit(
         json_ld=draft.json_ld,
         stt_snippets=draft.stt_snippets,
         template=result.template,
+        keyword_plan=result.keyword_plan,
     )
 
 

@@ -188,6 +188,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="업종 (이번 실행만 덮어쓰기)",
     )
     p.add_argument(
+        "--focus-area",
+        type=str,
+        default="",
+        help="이번 글 제목 지역 (예: 행신). 미지정 시 날짜+발행회차로 순환",
+    )
+    p.add_argument(
         "--save-draft",
         action="store_true",
         help="DATABASE_URL 있을 때 aeo_drafts 테이블에 초안 저장",
@@ -238,11 +244,18 @@ def run(settings: Settings, args: argparse.Namespace) -> int:
             whisper_model=settings.whisper_model,
             whisper_language=settings.whisper_language,
             key_coaching_points=args.coaching_points,
+            focus_area=args.focus_area or None,
         )
         article = draft.tistory
         print(f"  - STT OK: {len(draft.stt_snippets)} clips")
         print(f"  - tistory: {draft.tistory.title}")
         print(f"  - naver  : {draft.naver.title}")
+        if draft.keyword_plan:
+            print(
+                f"  - rotate : {draft.keyword_plan.focus_area}"
+                f" (#{draft.keyword_plan.rotation_index + 1}/{len(draft.keyword_plan.areas)})"
+                f" problems={', '.join(draft.keyword_plan.problem_keywords) or '-'}"
+            )
     elif use_dual:
         if args.text or args.file or args.url:
             draft = generate_draft_from_source_text(
@@ -250,12 +263,19 @@ def run(settings: Settings, args: argparse.Namespace) -> int:
                 settings.academy,
                 api_key=settings.openai_api_key,
                 model=settings.openai_model,
+                focus_area=args.focus_area or None,
             )
         else:
             raise ValueError("--dual requires --text, --file, --url, or --audio")
         article = draft.tistory
         print(f"  - tistory: {draft.tistory.title}")
         print(f"  - naver  : {draft.naver.title}")
+        if draft.keyword_plan:
+            print(
+                f"  - rotate : {draft.keyword_plan.focus_area}"
+                f" (#{draft.keyword_plan.rotation_index + 1}/{len(draft.keyword_plan.areas)})"
+                f" problems={', '.join(draft.keyword_plan.problem_keywords) or '-'}"
+            )
     elif args.audios:
         source = load_audio(
             args.audios[0],

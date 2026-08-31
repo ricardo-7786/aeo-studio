@@ -22,6 +22,7 @@ def generate_draft_from_audio_files(
     titles: list[str] | None = None,
     key_coaching_points: str = "",
     template_guide: str | None = None,
+    focus_area: str | None = None,
 ) -> DualDraftResult:
     """여러 포인트 녹음 → STT → 하나의 블로그 초안(티스토리+네이버)."""
     stt_snippets: list[SttSnippet] = []
@@ -53,6 +54,7 @@ def generate_draft_from_audio_files(
         model=model,
         stt_snippets=stt_snippets,
         template_guide=template_guide,
+        focus_area=focus_area,
     )
 
 
@@ -62,5 +64,14 @@ def generate_draft_from_source_text(
     *,
     api_key: str,
     model: str = "gpt-4o-mini",
+    template_guide: str | None = None,
+    focus_area: str | None = None,
 ) -> DualDraftResult:
-    return optimize_dual_channels(source_text, academy, api_key=api_key, model=model)
+    return optimize_dual_channels(
+        source_text,
+        academy,
+        api_key=api_key,
+        model=model,
+        template_guide=template_guide,
+        focus_area=focus_area,
+    )

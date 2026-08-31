@@ -10,15 +10,22 @@ from core.template.models import AeoTemplate, PostStructure
 SYSTEM = """당신은 SEO/AEO 콘텐츠 구조 분석가입니다.
 여러 상위 노출 블로그 글의 '구조'만 분석해 JSON 템플릿을 만듭니다.
 원문 문장을 복사·재작성하지 말고, 제목 패턴·소제목 흐름·글자 수·FAQ 질문 패턴만 추출하세요.
+
+section_structure 작성 규칙(중요):
+- '서론', '문제 제기', '결심', '마무리', '학원 소개' 같은 단계명·메타 라벨 금지.
+- 각 항목은 독자가 공감할 수 있는 '상황·스토리 중심 소제목 후보' 한 줄로 작성.
+- 좋은 예: "퇴근 후 쳇바퀴 일상, 노래로 찾아온 변화", "1개월 차: 쌩목이 아닌 호흡 재설계"
+- 나쁜 예: "서론: 보컬 레슨에 대한 관심", "마무리: 추천 여부"
+
 응답은 JSON 객체 하나만 출력합니다."""
 
 FIELDS = """
 필수 JSON 필드:
 - recommended_title_pattern: 상위 글 제목의 키워드 조합 규칙 (예: "[지역키워드] + [고민/곡명] + [해결·후기]")
-- section_structure: 문자열 배열, 소제목 흐름 4~8개
-- target_word_count: 정수, 본문 평균 권장 글자 수(공백 제외)
+- section_structure: 문자열 배열 4~8개. 각 항목은 스토리형 소제목 후보(위 규칙). 단계명 금지.
+- target_word_count: 정수, 본문 평균 권장 글자 수(공백 제외). 상위 글 char_count 참고.
 - qa_pairs: 문자열 배열, FAQ에 넣을 질문 패턴 3~5개
-- notes: 구조 활용 시 주의 한 줄
+- notes: 하위 LLM에게 "section_structure를 ## 그대로 쓰지 말고 STT 기반으로 자연스러운 소제목으로 변환" 한 줄 포함
 """
 
 
@@ -53,6 +60,7 @@ def structure_template(
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 
 위 데이터를 종합해 하위 STT/레슨 메모를 채울 '골격' JSON을 만드세요.
+section_structure에는 참고 글 headings 스타일(구체적·공감형)을 반영하되, 메타 단계명은 쓰지 마세요.
 {FIELDS}"""
 
     parsed = chat_json(
@@ -69,6 +77,12 @@ def structure_template(
     except (TypeError, ValueError):
         word_count = 700
 
+    default_notes = (
+        "section_structure 항목을 ## 소제목으로 그대로 출력하지 말고, "
+        "STT·메모 사실에 맞게 스토리형 소제목으로 변환하세요."
+    )
+    notes = str(parsed.get("notes") or "").strip() or default_notes
+
     return AeoTemplate(
         target_keyword=keyword.strip(),
         channel=channel,
@@ -79,5 +93,5 @@ def structure_template(
         target_word_count=word_count,
         qa_pairs=[str(x).strip() for x in (parsed.get("qa_pairs") or []) if str(x).strip()],
         source_urls=[p.url for p in posts],
-        notes=str(parsed.get("notes") or "").strip(),
+        notes=notes,
     )

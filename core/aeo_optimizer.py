@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -11,8 +12,14 @@ from pydantic import BaseModel, Field
 from config.settings import AcademyProfile
 from config.industry import INDUSTRY_META, industry_context_block, normalize_industry
 from core.input_parser import SourceContent
+from core.keyword_rotation import KeywordPlan
 from core.openai_json import chat_json
-from core.prompts import get_aeo_system_prompt
+from core.prompts import (
+    get_aeo_system_prompt,
+    keyword_density_block,
+    positive_style_block,
+    strict_negative_block,
+)
 
 
 class FAQItem(BaseModel):
@@ -28,7 +35,7 @@ class AEOArticle(BaseModel):
         description="이 글의 핵심 주제를 1문장으로 답하는 결론"
     )
     markdown_body: str = Field(
-        description="AEO 최적화 Markdown 본문 (제목 H1 제외, H2부터)"
+        description="AEO Markdown 본문. 소제목은 ##(H2)만. # H1·FAQ·이미지 문법 금지"
     )
     faq: list[FAQItem] = Field(
         default_factory=list,
@@ -84,23 +91,64 @@ title에는 '{academy.name}'과 위치 키워드를 자연스럽게 포함하세
 """
 
 
+def _normalize_markdown_body(body: str) -> str:
+    """LLM이 # H1·이미지 placeholder·FAQ를 markdown_body에 넣은 경우 보정."""
+    cleaned: list[str] = []
+    for line in (body or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## 자주 묻는 질문"):
+            break
+        if "image_url_placeholder" in line:
+            continue
+        if re.search(r"!\[[^\]]*\]\([^)]*\)", line):
+            if "placeholder" in line.lower() or "image_url" in line.lower():
+                continue
+        h3 = re.match(r"^(\s*)#{3,}\s+(.*)$", line)
+        if h3:
+            line = f"{h3.group(1)}## {h3.group(2)}"
+        else:
+            h1 = re.match(r"^(\s*)#\s+(.*)$", line)
+            if h1 and not line.lstrip().startswith("##"):
+                line = f"{h1.group(1)}## {h1.group(2)}"
+        cleaned.append(line.rstrip())
+    return "\n".join(cleaned).strip()
+
+
 def _build_source_text_prompt(
     source_text: str,
     academy: AcademyProfile,
     *,
     template_guide: str | None = None,
+    keyword_plan: KeywordPlan | None = None,
 ) -> str:
     guide_block = f"\n\n{template_guide}\n" if template_guide else ""
+    primary_keyword = keyword_plan.title_keyword if keyword_plan else academy.name
+    title_hint = keyword_plan.title_hint if keyword_plan else f"{primary_keyword} 레슨 일지"
+    evidence_block = ""
+    if academy.evidence.strip():
+        evidence_block = f"""
+[학원 고정 사실 — markdown_body에 STT와 자연스럽게 1~2문장 연결 가능. 지어내기 금지]
+- {academy.evidence}"""
     return f"""{_academy_context(academy)}
 {guide_block}
+{evidence_block}
+{keyword_density_block(primary_keyword, field="markdown_body")}
+{strict_negative_block()}
+{positive_style_block()}
+
 [원본 — 레슨 기록 (익명화됨)]
 {source_text}
 
 위 원본을 티스토리용 AEO 최적화 블로그 포스트 JSON으로 변환하세요.
 필드는 title, one_sentence_answer, markdown_body, faq(배열:{{question,answer}}), keywords(문자열 배열), meta_description 입니다.
-title에는 '{academy.name}'과 위치 키워드를 자연스럽게 포함하세요.
-중요 포인트 녹음 STT가 여러 개면 하나의 레슨 일지로 모두 녹여 쓰고, 포인트별 구체적 내용이 빠지지 않게 하세요.
-데이터·Q&A·사실 중심, 텍스트 위주 Markdown으로 작성하세요."""
+- title: '{title_hint}' 스타일. 대표 키워드 "{primary_keyword}" 포함.
+- markdown_body:
+  · 소제목은 ##(H2)만. # H1 절대 금지(발행 시 title이 유일한 H1)
+  · FAQ·이미지 문법(![]())·placeholder URL 금지
+  · STT 포인트마다 구체 코칭 3문장 이상. 한 줄 요약 금지
+  · "{primary_keyword}"를 markdown_body 본문에 완성된 문장 속 2~3회(서론·중반·마무리)
+- one_sentence_answer: 핵심 1문장(키워드·학원명 자연 포함)
+중요 포인트 녹음 STT가 여러 개면 하나의 레슨 일지로 모두 녹여 쓰고, 포인트별 구체적 내용이 빠지지 않게 하세요."""
 
 
 def _parse_faq(raw: Any) -> list[FAQItem]:
@@ -129,9 +177,9 @@ def _article_from_parsed(parsed: dict[str, Any], academy: AcademyProfile) -> AEO
         one_sentence_answer=str(
             parsed.get("one_sentence_answer") or parsed.get("oneSentenceAnswer") or ""
         ).strip(),
-        markdown_body=str(
-            parsed.get("markdown_body") or parsed.get("markdownBody") or ""
-        ).strip(),
+        markdown_body=_normalize_markdown_body(
+            str(parsed.get("markdown_body") or parsed.get("markdownBody") or "")
+        ),
         faq=_parse_faq(parsed.get("faq")),
         keywords=keywords,
         meta_description=str(
@@ -147,13 +195,19 @@ def optimize_source_to_aeo(
     api_key: str,
     model: str = "gpt-4o-mini",
     template_guide: str | None = None,
+    keyword_plan: KeywordPlan | None = None,
 ) -> AEOArticle:
     """익명화된 sourceText → 티스토리 AEO JSON."""
     parsed = chat_json(
         api_key=api_key,
         model=model,
         system=get_aeo_system_prompt(getattr(academy, "industry", "general")),
-        user=_build_source_text_prompt(source_text, academy, template_guide=template_guide),
+        user=_build_source_text_prompt(
+            source_text,
+            academy,
+            template_guide=template_guide,
+            keyword_plan=keyword_plan,
+        ),
         temperature=0.4,
     )
     return _article_from_parsed(parsed, academy)

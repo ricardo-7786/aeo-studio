@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>티스토리(AEO) + 네이버(SEO) 동시 생성</h2>
-  <p class="hint">텍스트 메모, 음성 파일 업로드, 앱 내 녹음 중 하나 이상이면 됩니다. 여러 포인트 녹음도 가능합니다.</p>
+  <p class="hint">CODA 레슨 녹음 URL, CODA DB 레슨 선택, 텍스트 메모, 음성 업로드, 앱 내 녹음 중 하나 이상이면 됩니다.</p>
   {% if error %}
   <div class="alert error">{{ error }}</div>
   {% endif %}
@@ -23,8 +23,65 @@
     <label for="lesson_title">제목/주제 (선택)</label>
     <input id="lesson_title" name="lesson_title" value="{{ lesson_title or '현장 기록' }}">
 
-    <label for="source_text">현장 메모 (선택 — STT와 함께 쓰면 보조 코칭 포인트로 반영)</label>
+    <label for="source_text">현장 메모 (선택 — STT·CODA와 함께 쓰면 보조 코칭 포인트로 반영)</label>
     <textarea id="source_text" name="source_text" placeholder="오늘 레슨에서...">{{ source_text or '' }}</textarea>
+
+    <div class="input-section template-panel">
+      <h3>CODA 레슨 녹음 연동</h3>
+      {% if coda_db_ok %}
+      <p class="hint">
+        CODA DB에서 <strong>{{ coda_teacher_name or '전창영' }}</strong> 선생님 레슨을 고르면
+        녹음·코칭 포인트·태그를 자동으로 불러옵니다. (우선순위: 레슨 선택 &gt; JSON &gt; URL)
+      </p>
+      <label for="coda_lesson_id">CODA 레슨 선택</label>
+      <select id="coda_lesson_id" name="coda_lesson_id">
+        <option value="">(직접 URL/JSON 입력)</option>
+        {% for lesson in coda_lessons %}
+        <option value="{{ lesson.lesson_id }}"
+          data-title="{{ lesson.title | e }}"
+          {% if coda_lesson_id|string == lesson.lesson_id|string %}selected{% endif %}>
+          #{{ lesson.lesson_id }} · {{ lesson.student_name or '학생' }}
+          — {{ lesson.title or '제목 없음' }}
+          (녹음 {{ lesson.recording_count }}개)
+        </option>
+        {% endfor %}
+      </select>
+      {% if not coda_lessons %}
+      <p class="hint">연결은 되었지만 녹음이 있는 레슨이 없거나, 강사 필터({{ coda_teacher_name }})에 맞는 레슨이 없습니다.</p>
+      {% endif %}
+      {% else %}
+      <p class="hint">
+        CODA DB 자동 불러오기: <code>.env</code>에 <code>CODA_DATABASE_URL</code>을 설정하세요.
+        (CODA Supabase Postgres — AEO <code>DATABASE_URL</code>과 별도)
+      </p>
+      {% endif %}
+
+      <p class="hint">
+        수동 입력: CODA에서 저장된 포인트 녹음 <strong>audioUrl</strong>을 붙여 넣으면 Whisper STT 후 AEO/SEO 글을 생성합니다.
+        한 줄 형식: <code>포인트 제목|https://...</code> 또는 URL만.
+      </p>
+      <label for="coda_teacher_name">담당 강사 (선택)</label>
+      <input id="coda_teacher_name" name="coda_teacher_name"
+        value="{{ coda_teacher_name or '' }}" placeholder="전창영">
+
+      <label for="coda_recording_urls">CODA 녹음 URL (한 줄에 하나)</label>
+      <textarea id="coda_recording_urls" name="coda_recording_urls" rows="4"
+        placeholder="고음 구간|https://storage.example.com/rec1.webm&#10;https://storage.example.com/rec2.webm">{{ coda_recording_urls or '' }}</textarea>
+
+      <label>
+        <input type="checkbox" name="coda_include_stt" value="on"
+          {% if coda_include_stt is not defined or coda_include_stt %}checked{% endif %}>
+        CODA URL Whisper STT 실행
+      </label>
+
+      <details class="hint">
+        <summary>CODA JSON 전체 붙여넣기 (고급)</summary>
+        <label for="coda_json">레슨 JSON — recordings, sttSnippets, tags, keyCoachingPoints 등</label>
+        <textarea id="coda_json" name="coda_json" rows="6"
+          placeholder='{"lessonTitle":"...","recordings":[{"recordingId":1,"audioUrl":"https://..."}]}'>{{ coda_json or '' }}</textarea>
+        <p class="hint">JSON이 있으면 URL 목록보다 우선합니다. 레슨 선택이 있으면 JSON·URL보다 우선합니다.</p>
+      </details>
+    </div>
 
     <div class="input-section">
       <h3>음성 파일 업로드</h3>
@@ -45,17 +102,45 @@
     </div>
 
     <div class="input-section template-panel">
+      <h3>키워드 로테이션</h3>
+      <p class="hint">
+        본점 지역은 본문에 사실대로 두고, 제목·리드는 인접 상권을 날짜·발행 회차로 순환합니다.
+        STT에서 고음 씹힘·호흡 부족 등이 보이면 제목에 결합합니다.
+      </p>
+      {% if preview_plan %}
+      <p>
+        오늘 기본 순환: <span class="badge">{{ preview_plan.focus_area }}</span>
+        · 권장 제목 <code>{{ preview_plan.title_hint }}</code>
+      </p>
+      <p class="hint">순환 풀: {{ preview_plan.areas | join(', ') }}</p>
+      {% endif %}
+      <label for="focus_area">이번 글 지역 (비우면 자동 순환)</label>
+      <select id="focus_area" name="focus_area">
+        <option value="">자동 (오늘 순환)</option>
+        {% if preview_plan %}
+          {% for a in preview_plan.areas %}
+          <option value="{{ a }}" {% if focus_area == a %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </div>
+
+    <div class="input-section template-panel">
       <h3>상위 노출 템플릿 (AEO Template)</h3>
-      <p class="hint">키워드로 SerpAPI 상위 글 구조를 분석해 글 골격에 반영합니다. SerpAPI 없으면 참고 URL만 입력하세요.</p>
+      <p class="hint">
+        네이버 블로그 URL은 자동으로 <code>m.blog.naver.com</code>으로 변환해 본문·소제목·Q&amp;A 패턴을 추출합니다.
+        SerpAPI 키가 없으면 아래 <strong>참고 URL</strong>만 입력해도 됩니다 (한 줄에 하나).
+      </p>
       <label>
-        <input type="checkbox" name="use_template" value="on"
+        <input type="checkbox" name="use_template" value="on" id="use_template"
           {% if use_template %}checked{% endif %}>
         상위 노출 템플릿 적용
       </label>
 
       <label for="target_keyword">타겟 키워드</label>
       <input id="target_keyword" name="target_keyword"
-        value="{{ target_keyword or '' }}" placeholder="화정역 보컬학원">
+        value="{{ target_keyword or default_target_keyword or '' }}"
+        placeholder="{{ default_target_keyword or '화정역 보컬학원' }}">
 
       <label for="template_channel">검색 채널</label>
       <select id="template_channel" name="template_channel">
@@ -65,12 +150,16 @@
 
       <label for="manual_reference_urls">참고 URL (선택, 한 줄에 하나 — SerpAPI 대신/추가)</label>
       <textarea id="manual_reference_urls" name="manual_reference_urls" rows="3"
-        placeholder="https://blog.naver.com/...">{{ manual_reference_urls or '' }}</textarea>
+        placeholder="https://blog.naver.com/블로그ID/글번호">{{ manual_reference_urls or '' }}</textarea>
 
       <label>
-        <input type="checkbox" name="force_template_refresh" value="on">
+        <input type="checkbox" name="force_template_refresh" value="on"
+          {% if force_template_refresh %}checked{% endif %}>
         캐시 무시하고 템플릿 재추출
       </label>
+      <p class="hint template-hint" id="template-status" hidden>
+        템플릿 추출·글 생성 중입니다. 네이버 URL 분석에 10~30초 걸릴 수 있습니다.
+      </p>
     </div>
 
     <label>
@@ -85,4 +174,33 @@
 
 {% block scripts %}
 <script src="/static/recorder.js"></script>
+<script>
+(function () {
+  const form = document.getElementById("generate-form");
+  const submitBtn = document.getElementById("submit-btn");
+  const useTemplate = document.getElementById("use_template");
+  const status = document.getElementById("template-status");
+  const lessonSelect = document.getElementById("coda_lesson_id");
+  const lessonTitleInput = document.getElementById("lesson_title");
+  if (lessonSelect && lessonTitleInput) {
+    lessonSelect.addEventListener("change", function () {
+      const opt = lessonSelect.options[lessonSelect.selectedIndex];
+      const title = opt && opt.dataset ? opt.dataset.title : "";
+      if (title && (!lessonTitleInput.value || lessonTitleInput.value === "현장 기록")) {
+        lessonTitleInput.value = title;
+      }
+    });
+  }
+  if (!form || !submitBtn) return;
+  form.addEventListener("submit", function () {
+    submitBtn.disabled = true;
+    submitBtn.textContent = useTemplate && useTemplate.checked
+      ? "템플릿 추출 · 글 생성 중…"
+      : "생성 중…";
+    if (status && useTemplate && useTemplate.checked) {
+      status.hidden = false;
+    }
+  });
+})();
+</script>
 {% endblock %}

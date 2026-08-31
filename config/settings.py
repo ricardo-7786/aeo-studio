@@ -42,6 +42,7 @@ class BusinessProfile:
     geo_lng: float | None
     price_range: str
     opening_hours: str
+    adjacent_areas: list[str] = field(default_factory=list)
 
 
 # 하위 호환 alias
@@ -125,6 +126,11 @@ def _profile_from_env() -> BusinessProfile:
             "BUSINESS_OPENING_HOURS",
             _env("ACADEMY_OPENING_HOURS", "Mo-Sa 10:00-22:00"),
         ),
+        adjacent_areas=[
+            s.strip()
+            for s in _env("BUSINESS_ADJACENT_AREAS", _env("ACADEMY_ADJACENT_AREAS", "")).split(",")
+            if s.strip()
+        ],
     )
 
 
@@ -146,6 +152,7 @@ def _row_to_profile(row) -> BusinessProfile:
         geo_lng=lng,
         price_range=row.price_range,
         opening_hours=row.opening_hours,
+        adjacent_areas=[s.strip() for s in (row.adjacent_areas or "").split(",") if s.strip()],
     )
 
 

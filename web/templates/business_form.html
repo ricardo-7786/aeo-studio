@@ -37,6 +37,11 @@
     <label for="services">서비스 (쉼표 구분)</label>
     <input id="services" name="services" value="{{ business.services if business else '' }}">
 
+    <label for="adjacent_areas">인접 상권 (쉼표 구분, 제목 키워드 순환)</label>
+    <input id="adjacent_areas" name="adjacent_areas"
+      placeholder="행신, 원당, 삼송"
+      value="{{ business.adjacent_areas if business else '' }}">
+
     <label for="evidence">근거 데이터 (수치·실적 등)</label>
     <textarea id="evidence" name="evidence">{{ business.evidence if business else '' }}</textarea>
 

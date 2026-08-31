@@ -24,7 +24,7 @@ def _print_row(row: BusinessRow) -> None:
     print(f"  phone    : {row.phone}")
     print(f"  url      : {row.url}")
     print(f"  services : {row.services}")
-    print(f"  evidence : {row.evidence[:80]}{'…' if len(row.evidence) > 80 else ''}")
+    print(f"  adjacent : {row.adjacent_areas}")
 
 
 def cmd_list(_: argparse.Namespace) -> int:
@@ -62,6 +62,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         geo_lng=args.geo_lng,
         price_range=args.price_range or "$$",
         opening_hours=args.opening_hours or "",
+        adjacent_areas=args.adjacent_areas or "",
     )
     saved = BusinessRepo().upsert(row)
     print("저장됨:")
@@ -85,6 +86,7 @@ def cmd_seed_env(_: argparse.Namespace) -> int:
         geo_lng=str(profile.geo_lng) if profile.geo_lng else None,
         price_range=profile.price_range,
         opening_hours=profile.opening_hours,
+        adjacent_areas=", ".join(profile.adjacent_areas),
     )
     saved = BusinessRepo().upsert(row)
     print(".env → DB 시드 완료:")
@@ -119,6 +121,7 @@ def main() -> int:
     add_p.add_argument("--geo-lng", default=None)
     add_p.add_argument("--price-range", default="$$")
     add_p.add_argument("--opening-hours", default="")
+    add_p.add_argument("--adjacent-areas", default="", help="인접 지역 쉼표 구분 (예: 행신,원당,삼송)")
 
     sub.add_parser("seed-from-env", help=".env ACADEMY_*/BUSINESS_* → DB")
 
