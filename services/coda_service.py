@@ -17,6 +17,7 @@ from core.coda_import import (
 )
 from db.coda_repo import get_lesson_bundle
 from core.dual_channel import DualDraftResult, optimize_dual_channels
+from core.stt_topic import append_topic_plan_to_source, extract_stt_topic_plan
 from services.content_service import GenerateResult, _save_draft_if_needed
 from services.template_service import resolve_template_guide
 
@@ -66,13 +67,39 @@ def generate_from_coda(
         raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
 
     payload = _merge_extra_coaching(payload, extra_coaching)
+
+    from core.lesson_subject import detect_lesson_subject, resolve_template_keyword
+    from core.stt_music_review import prepare_theory_stt_snippets, resolve_whisper_prompt
+
+    kw = (target_keyword or "").strip()
+    rough_subject = detect_lesson_subject(
+        cfg.business,
+        lesson_title=payload.lesson_title,
+        target_keyword=kw,
+    )
+    whisper_prompt = resolve_whisper_prompt(
+        rough_subject, academy_services=cfg.business.services
+    )
     stt_snippets = stt_from_coda_recordings(
         payload,
         api_key=cfg.openai_api_key,
         whisper_model=cfg.whisper_model,
         whisper_language=cfg.whisper_language,
+        whisper_prompt=whisper_prompt,
     )
+    stt_review: list = []
+    review_block = ""
+    if stt_snippets:
+        stt_snippets, stt_review, review_block = prepare_theory_stt_snippets(
+            stt_snippets,
+            subject=rough_subject,
+            lesson_title=payload.lesson_title,
+            target_keyword=kw,
+            academy_profile=cfg.business,
+        )
     source_text = build_source_from_coda(payload, stt_snippets)
+    if review_block:
+        source_text = f"{source_text}\n\n{review_block}"
     if not source_text.replace(" ", ""):
         raise ValueError(
             "AEO로 만들 내용이 없습니다. CODA 녹음 URL·STT·핵심 코칭 포인트 중 하나 이상을 확인하세요."
@@ -84,11 +111,23 @@ def generate_from_coda(
         cfg.business,
         source_text,
         focus_area_override=focus_area,
+        lesson_title=payload.lesson_title,
+        target_keyword=(target_keyword or "").strip(),
     )
-    template_keyword = (target_keyword or "").strip() or plan.title_keyword
+    resolved_keyword = resolve_template_keyword(plan, (target_keyword or "").strip())
+
+    topic_plan = extract_stt_topic_plan(
+        source_text,
+        api_key=cfg.openai_api_key,
+        model=cfg.openai_model,
+        stt_snippets=stt_snippets or None,
+    )
+    if topic_plan:
+        source_text = append_topic_plan_to_source(source_text, topic_plan)
+
     template_guide, template_obj = resolve_template_guide(
         use_template=use_template,
-        target_keyword=template_keyword,
+        target_keyword=resolved_keyword,
         template_channel=template_channel,
         manual_urls=manual_reference_urls,
         force_refresh=force_template_refresh,
@@ -104,6 +143,10 @@ def generate_from_coda(
         template_guide=template_guide,
         keyword_plan=plan,
         focus_area=focus_area,
+        lesson_title=payload.lesson_title,
+        target_keyword=resolved_keyword,
+        topic_plan=topic_plan,
+        stt_review=stt_review or None,
     )
     title = payload.lesson_title.strip() or "현장 기록"
     draft_id = _save_draft_if_needed(
@@ -170,6 +213,35 @@ def dual_result_to_api_dict(result: GenerateResult) -> dict[str, Any]:
         ],
         "generatedAt": d.generated_at,
         "draftId": result.draft_id,
+        "topicPlan": (
+            {
+                "topics": [
+                    {"heading": t.heading, "keyPoints": t.key_points}
+                    for t in d.topic_plan.topics
+                ],
+                "faqSuggestions": d.topic_plan.faq_suggestions,
+                "suggestSplit": d.topic_plan.suggest_split,
+                "splitHint": d.topic_plan.split_hint,
+            }
+            if d.topic_plan
+            else None
+        ),
+        "missingTopics": d.missing_topics,
+        "missingKeyPoints": d.missing_key_points,
+        "fillerPhrases": d.filler_phrases,
+        "sttReview": (
+            [
+                {
+                    "severity": r.severity,
+                    "category": r.category,
+                    "message": r.message,
+                    "excerpt": r.excerpt,
+                }
+                for r in d.stt_review
+            ]
+            if d.stt_review
+            else None
+        ),
         "keywordPlan": (
             {
                 "focusArea": result.keyword_plan.focus_area,

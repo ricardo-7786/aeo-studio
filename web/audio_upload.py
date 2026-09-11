@@ -18,16 +18,16 @@ def _safe_suffix(filename: str) -> str:
 
 
 async def save_uploaded_audio_files(files: list[UploadFile]) -> list[Path]:
-    """업로드/녹음 파일을 임시 경로에 저장. 호출자가 cleanup_temp_audio_files로 삭제."""
+    """업로드/녹음 파일을 임시 경로에 저장. 25MB 초과도 저장(STT 전 ffmpeg 자동 압축)."""
     saved: list[Path] = []
     for upload in files:
         if not upload.filename:
             continue
         suffix = _safe_suffix(upload.filename)
+        content = await upload.read()
+        if not content:
+            continue
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await upload.read()
-            if not content:
-                continue
             tmp.write(content)
             saved.append(Path(tmp.name))
     return saved

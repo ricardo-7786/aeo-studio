@@ -150,6 +150,7 @@ def stt_from_coda_recordings(
     api_key: str,
     whisper_model: str = "whisper-1",
     whisper_language: str = "ko",
+    whisper_prompt: str | None = None,
 ) -> list[SttSnippet]:
     """pre-STT snippets + URL Whisper."""
     snippets: list[SttSnippet] = []
@@ -178,6 +179,7 @@ def stt_from_coda_recordings(
                     api_key=api_key,
                     model=whisper_model,
                     language=whisper_language,
+                    prompt=whisper_prompt,
                 )
                 snippets.append(
                     SttSnippet(

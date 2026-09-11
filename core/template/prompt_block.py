@@ -30,27 +30,31 @@ def resolve_naver_target_chars(template_guide: str | None) -> int:
 
 def format_template_guide(template: AeoTemplate | dict) -> str:
     t = template if isinstance(template, AeoTemplate) else AeoTemplate.model_validate(template)
-    sections = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(t.section_structure))
+    section_count = len(t.section_structure)
     qa = "\n".join(f"  - {q}" for q in t.qa_pairs)
     urls = "\n".join(f"  - {u}" for u in t.source_urls)
     notes = t.notes or (
-        "section_structure 항목을 ## 소제목으로 그대로 출력하지 말고, "
-        "STT·메모 사실에 맞게 스토리형 소제목으로 변환하세요."
+        "참고 글 소제목·문장을 복사하지 말고, STT 포인트명으로 ## 소제목을 새로 작성하세요."
     )
-    return f"""[상위 노출 참고 구조 — 문장·표현 복사 금지, 목차·흐름만 따를 것]
+    section_hint = (
+        f"참고 글 본문은 약 {section_count}개 구간 분량 — 구간 **수·글자 수**만 참고. "
+        f"## 소제목은 원문 STT 연습명·기술명으로만 작성(참고 글 소제목 문구 복사 금지)."
+        if section_count
+        else "구간 수는 STT 포인트 수에 맞게 3~5개. ## 소제목은 연습명·기술명만."
+    )
+    return f"""[상위 노출 참고 구조 — 문장·소제목·스토리 복사 금지, 분량·FAQ 패턴만 참고]
 - 키워드: {t.target_keyword} ({t.channel})
-- 참고 URL:
+- 참고 URL (취미후기·성공 스토리일 수 있음 — STT 단일 레슨이면 그 서사를 따라 쓰지 말 것):
 {urls or '  - (없음)'}
-- 제목 패턴: {t.recommended_title_pattern}
+- 제목 패턴(키워드 조합만 참고): {t.recommended_title_pattern}
 - 권장 글자 수(공백 제외): 약 {t.target_word_count}자
-- 소제목 흐름(스토리형 후보 — 아래를 ## 그대로 쓰지 말 것):
-{sections or '  (자유)'}
-- FAQ에 넣을 질문 패턴(원문 STT 내용으로 답할 것):
+- 본문 구간: {section_hint}
+- FAQ 질문 패턴(원문·프로필로 답 가능한 것만 — 일반론·허구 답 금지):
 {qa or '  (자유)'}
 - {notes}
 
-[소제목 변환 규칙 — 필수]
-1. '서론', '문제 제기', '결심', '마무리', '학원 소개' 등 단계명·메타 라벨을 ## Heading으로 출력 금지.
-2. 위 '소제목 흐름'은 글의 전개 순서만 참고하고, 실제 ## 소제목은 STT·메모 사실 기반 스토리형 문장으로 새로 작성.
-   예) ## 퇴근 후 쳇바퀴 일상, 노래로 찾아온 변화 / ## 1개월 차: 쌩목이 아닌 과학적 호흡 재설계
-3. 상위 글 문장·표현 복사 금지. 구조(흐름·분량·FAQ 패턴)만 따를 것."""
+[템플릿 적용 규칙 — 필수]
+1. 참고 URL 글의 소제목·스토리 흐름(퇴근 후 도전, N개월 여정 등)을 본문에 재현하지 말 것.
+2. ## 소제목 = STT·메모의 실제 연습 포인트·기술명·곡명. 예) ## 아으에이오우 롱톤으로 발음 길게 잡기
+3. '서론', '문제 제기', '결심', '마무리' 등 단계명·메타 라벨을 ## Heading으로 출력 금지.
+4. 원문에 없는 사건·기간·인물관계를 분량 채우기용으로 추가 금지 — [학원 고정 사실]·연락처·통학 맥락으로만 보완."""

@@ -16,10 +16,13 @@ from core.keyword_rotation import KeywordPlan
 from core.openai_json import chat_json
 from core.prompts import (
     get_aeo_system_prompt,
+    anti_summary_block,
     keyword_density_block,
     positive_style_block,
+    source_fidelity_block,
     strict_negative_block,
 )
+from core.stt_topic import SttTopicPlan, topic_plan_prompt_block
 
 
 class FAQItem(BaseModel):
@@ -120,8 +123,16 @@ def _build_source_text_prompt(
     *,
     template_guide: str | None = None,
     keyword_plan: KeywordPlan | None = None,
+    topic_plan: SttTopicPlan | None = None,
 ) -> str:
     guide_block = f"\n\n{template_guide}\n" if template_guide else ""
+    topic_block = ""
+    length_hint = ""
+    if topic_plan:
+        topic_block = f"\n\n{topic_plan_prompt_block(topic_plan)}\n"
+        from core.stt_topic import resolve_content_lengths
+
+        _, length_hint = resolve_content_lengths(topic_plan, template_guide=template_guide)
     primary_keyword = keyword_plan.title_keyword if keyword_plan else academy.name
     title_hint = keyword_plan.title_hint if keyword_plan else f"{primary_keyword} 레슨 일지"
     evidence_block = ""
@@ -131,6 +142,9 @@ def _build_source_text_prompt(
 - {academy.evidence}"""
     return f"""{_academy_context(academy)}
 {guide_block}
+{topic_block}
+{source_fidelity_block()}
+{anti_summary_block()}
 {evidence_block}
 {keyword_density_block(primary_keyword, field="markdown_body")}
 {strict_negative_block()}
@@ -141,14 +155,18 @@ def _build_source_text_prompt(
 
 위 원본을 티스토리용 AEO 최적화 블로그 포스트 JSON으로 변환하세요.
 필드는 title, one_sentence_answer, markdown_body, faq(배열:{{question,answer}}), keywords(문자열 배열), meta_description 입니다.
-- title: '{title_hint}' 스타일. 대표 키워드 "{primary_keyword}" 포함.
+- title: '{title_hint}' 스타일. 대표 키워드 "{primary_keyword}" 포함. 허구 후기·드라마형 제목 금지.
 - markdown_body:
   · 소제목은 ##(H2)만. # H1 절대 금지(발행 시 title이 유일한 H1)
+  · ## 소제목 = [STT 주제 구조]의 heading을 그대로 또는 동일 기술명으로 사용. 참고 템플릿·URL 소제목 복사 금지
   · FAQ·이미지 문법(![]())·placeholder URL 금지
-  · STT 포인트마다 구체 코칭 3문장 이상. 한 줄 요약 금지
+  · 각 ## 소제목 아래: 해당 주제의 key_points를 **각각 별도 문장**으로 포함(2~3문장 요약 금지)
+  · 줄 번호·프렛·음 이름·코드명·카포·CAGED 등 STT 용어를 그대로 사용
   · "{primary_keyword}"를 markdown_body 본문에 완성된 문장 속 2~3회(서론·중반·마무리)
-- one_sentence_answer: 핵심 1문장(키워드·학원명 자연 포함)
-중요 포인트 녹음 STT가 여러 개면 하나의 레슨 일지로 모두 녹여 쓰고, 포인트별 구체적 내용이 빠지지 않게 하세요."""
+  {f'· 분량: {length_hint}' if length_hint else ''}
+- one_sentence_answer: 핵심 1문장(키워드·학원명·오늘 연습 주제 포함). 쉼표 나열 금지
+- faq: [FAQ 후보] 또는 원문·프로필로 답 가능한 질문만. 학원 일반 FAQ·템플릿 일반론 금지
+중요: [STT 주제 구조] 체크리스트 항목이 markdown_body에 모두 반영되어야 합니다."""
 
 
 def _parse_faq(raw: Any) -> list[FAQItem]:
@@ -196,6 +214,7 @@ def optimize_source_to_aeo(
     model: str = "gpt-4o-mini",
     template_guide: str | None = None,
     keyword_plan: KeywordPlan | None = None,
+    topic_plan: SttTopicPlan | None = None,
 ) -> AEOArticle:
     """익명화된 sourceText → 티스토리 AEO JSON."""
     parsed = chat_json(
@@ -207,8 +226,9 @@ def optimize_source_to_aeo(
             academy,
             template_guide=template_guide,
             keyword_plan=keyword_plan,
+            topic_plan=topic_plan,
         ),
-        temperature=0.4,
+        temperature=0.35,
     )
     return _article_from_parsed(parsed, academy)
 

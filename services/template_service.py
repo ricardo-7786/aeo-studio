@@ -101,7 +101,8 @@ def get_or_build_template(
         )
     if not urls:
         raise ValueError(
-            "참고 URL을 찾지 못했습니다. SerpAPI 키를 확인하거나 수동 URL을 입력하세요."
+            f"'{keyword}'로 상위 블로그 URL을 찾지 못했습니다. "
+            "참고 URL을 직접 넣거나, 상위 노출 템플릿을 끄고 생성하세요."
         )
 
     posts: list[PostStructure] = []

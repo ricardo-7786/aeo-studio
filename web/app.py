@@ -69,6 +69,7 @@ def _ctx(request: Request, **extra):
     base = {
         "request": request,
         "db_ok": is_db_configured(),
+        "coda_db_ok": is_coda_db_configured(),
         "industries": INDUSTRIES,
         "industry_meta": INDUSTRY_META,
     }
@@ -192,7 +193,7 @@ async def generate_form(request: Request, business_key: str = ""):
         businesses=businesses,
         default_key=default_key,
         preview_plan=preview_plan,
-        default_target_keyword=preview_plan.title_keyword if preview_plan else "",
+        default_target_keyword="",
         coda_db_ok=is_coda_db_configured(),
         coda_teacher_name=coda_teacher,
         coda_lessons=_load_coda_lessons_safe(),
@@ -302,7 +303,7 @@ async def generate_submit(
             focus_area=focus_area,
             force_template_refresh=force_template_refresh == "on",
             preview_plan=preview_plan,
-            default_target_keyword=preview_plan.title_keyword if preview_plan else "",
+            default_target_keyword="",
             coda_recording_urls=coda_recording_urls,
             coda_json=coda_json,
             coda_teacher_name=coda_teacher_name or os.getenv("CODA_TEACHER_NAME", "전창영"),
@@ -328,6 +329,13 @@ async def generate_submit(
         stt_snippets=draft.stt_snippets,
         template=result.template,
         keyword_plan=result.keyword_plan,
+        topic_plan=draft.topic_plan,
+        missing_topics=draft.missing_topics,
+        missing_key_points=draft.missing_key_points,
+        filler_phrases=draft.filler_phrases,
+        factual_warnings=draft.factual_warnings,
+        duplicated_paragraphs=draft.duplicated_paragraphs,
+        stt_review=draft.stt_review,
     )
 
 

@@ -85,7 +85,7 @@
 
     <div class="input-section">
       <h3>음성 파일 업로드</h3>
-      <p class="hint">m4a, mp3, wav, webm 등 · 파일당 25MB 이하 · 여러 개 선택 가능</p>
+      <p class="hint">m4a, mp3, wav, webm 등 · 25MB 초과 시 ffmpeg로 자동 압축 후 STT · 여러 개 선택 가능</p>
       <input id="audio_files" name="audio_files" type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" multiple>
       <ul id="upload-file-list" class="clip-list"></ul>
     </div>
@@ -129,7 +129,8 @@
       <h3>상위 노출 템플릿 (AEO Template)</h3>
       <p class="hint">
         네이버 블로그 URL은 자동으로 <code>m.blog.naver.com</code>으로 변환해 본문·소제목·Q&amp;A 패턴을 추출합니다.
-        SerpAPI 키가 없으면 아래 <strong>참고 URL</strong>만 입력해도 됩니다 (한 줄에 하나).
+        SerpAPI 키가 있으면 타겟 키워드로 블로그를 검색합니다. 음성·CODA 업로드 시 <strong>STT에서 과목(기타·보컬 등)을 감지해 키워드·템플릿을 자동 맞춥니다.</strong>
+        칸을 비우면 자동 설정됩니다. STT가 짧은 레슨이면 템플릿을 끄는 편이 안전합니다.
       </p>
       <label>
         <input type="checkbox" name="use_template" value="on" id="use_template"
@@ -137,10 +138,10 @@
         상위 노출 템플릿 적용
       </label>
 
-      <label for="target_keyword">타겟 키워드</label>
+      <label for="target_keyword">타겟 키워드 (비우면 STT·레슨 과목으로 자동)</label>
       <input id="target_keyword" name="target_keyword"
         value="{{ target_keyword or default_target_keyword or '' }}"
-        placeholder="{{ default_target_keyword or '화정역 보컬학원' }}">
+        placeholder="예: 화정 기타학원 — 비우면 자동">
 
       <label for="template_channel">검색 채널</label>
       <select id="template_channel" name="template_channel">

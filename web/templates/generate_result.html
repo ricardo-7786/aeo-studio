@@ -19,6 +19,8 @@
     ·
     <span class="badge">본점</span> {{ keyword_plan.home_area or '—' }}
     ·
+    <span class="badge">이번 과목</span> {{ keyword_plan.lesson_subject or '—' }}
+    ·
     순환 {{ keyword_plan.rotation_index + 1 }}/{{ keyword_plan.areas|length }}
   </p>
   <p><strong>권장 제목 골격</strong> {{ keyword_plan.title_hint }}</p>
@@ -28,6 +30,106 @@
   <p class="hint">STT에서 감지된 발성 문제 키워드는 없습니다. 원문 고민을 그대로 씁니다.</p>
   {% endif %}
   <p class="hint">순환 풀: {{ keyword_plan.areas | join(', ') }}</p>
+</div>
+{% endif %}
+
+{% if topic_plan and topic_plan.topics %}
+<div class="card">
+  <h2>STT 주제 구조</h2>
+  {% if topic_plan.suggest_split %}
+  <p class="hint">⚠ {{ topic_plan.split_hint }}</p>
+  {% endif %}
+  <ol>
+    {% for t in topic_plan.topics %}
+    <li>
+      <strong>{{ t.heading }}</strong>
+      {% if t.key_points %}
+      <ul>
+        {% for p in t.key_points %}
+        <li>{{ p }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% if topic_plan.faq_suggestions %}
+  <p><strong>FAQ 후보</strong></p>
+  <ul>
+    {% for q in topic_plan.faq_suggestions %}
+    <li>{{ q }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if missing_topics and missing_topics|length > 0 %}
+<div class="alert warn">
+  <strong>주제 누락 경고</strong> — 생성본에 아래 STT 주제가 충분히 반영되지 않았을 수 있습니다.
+  <ul>
+    {% for m in missing_topics %}
+    <li>{{ m }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if missing_key_points and missing_key_points|length > 0 %}
+<div class="alert warn">
+  <strong>세부 포인트 누락</strong> — 아래 STT 핵심 내용이 본문에 빠졌을 수 있습니다. 수동 보완을 권장합니다.
+  <ul>
+    {% for m in missing_key_points[:12] %}
+    <li>{{ m }}</li>
+    {% endfor %}
+    {% if missing_key_points|length > 12 %}
+    <li class="hint">…외 {{ missing_key_points|length - 12 }}건</li>
+    {% endif %}
+  </ul>
+</div>
+{% endif %}
+
+{% if filler_phrases and filler_phrases|length > 0 %}
+<div class="alert warn">
+  <strong>빈 서사 표현 감지</strong> — 아래 문구가 본문에 포함되어 있습니다. 삭제·구체 코칭 내용으로 교체하세요.
+  <ul>
+    {% for p in filler_phrases %}
+    <li>「{{ p }}」</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if stt_review and stt_review|length > 0 %}
+<div class="alert warn">
+  <strong>STT 검토 필요</strong> — 녹음은 맞을 수 있으나 음성인식(Whisper)이 틀렸을 수 있습니다. 본문 작성 전 확인하세요.
+  <ul>
+    {% for r in stt_review %}
+    <li>{% if r.severity == 'warn' %}⚠{% else %}·{% endif %} {{ r.message }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if factual_warnings and factual_warnings|length > 0 %}
+<div class="alert warn">
+  <strong>STT 불일치 경고</strong> — 생성본이 원문과 다를 수 있습니다.
+  <ul>
+    {% for w in factual_warnings %}
+    <li>{{ w }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if duplicated_paragraphs and duplicated_paragraphs|length > 0 %}
+<div class="alert warn">
+  <strong>네이버 복붙 감지</strong> — 아래 문단이 티스토리와 거의 동일합니다. 네이버 본문을 다시 쓰세요.
+  <ul>
+    {% for p in duplicated_paragraphs %}
+    <li>{{ p }}</li>
+    {% endfor %}
+  </ul>
 </div>
 {% endif %}
 

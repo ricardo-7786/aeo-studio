@@ -21,7 +21,12 @@
   <main>
     {% if not db_ok %}
     <div class="alert warn">
-      DATABASE_URL이 없습니다. 업체·초안·발행 URL DB 기능은 비활성입니다. .env에 PostgreSQL 연결을 추가하세요.
+      AEO용 <code>DATABASE_URL</code>이 없습니다. 초안 저장·업체 관리·발행 URL 추적은 비활성입니다.
+      {% if coda_db_ok %}
+      <br><span class="hint"><code>CODA_DATABASE_URL</code>은 연결됨 — CODA 레슨 불러오기·글 생성은 정상입니다.</span>
+      {% else %}
+      CODA 레슨 자동 불러오기는 <code>CODA_DATABASE_URL</code>을 따로 설정하세요.
+      {% endif %}
     </div>
     {% endif %}
     {% block content %}{% endblock %}

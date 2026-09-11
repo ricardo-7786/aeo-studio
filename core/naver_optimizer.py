@@ -11,11 +11,13 @@ from core.naver_utils import build_naver_local_keywords, normalize_naver_title, 
 from core.openai_json import chat_json
 from core.prompts import (
     get_naver_system_prompt,
+    anti_summary_block,
     keyword_density_block,
     positive_style_block,
+    source_fidelity_block,
     strict_negative_block,
 )
-from core.template.prompt_block import resolve_naver_target_chars
+from core.stt_topic import SttTopicPlan, resolve_content_lengths, topic_plan_prompt_block
 
 
 class NaverBlogArticle(BaseModel):
@@ -34,6 +36,7 @@ def optimize_to_naver_seo(
     model: str = "gpt-4o-mini",
     template_guide: str | None = None,
     keyword_plan: KeywordPlan | None = None,
+    topic_plan: SttTopicPlan | None = None,
 ) -> NaverBlogArticle:
     local_keywords = build_naver_local_keywords(academy)
     if keyword_plan:
@@ -48,15 +51,23 @@ def optimize_to_naver_seo(
     kw0 = local_keywords[0] if local_keywords else academy.name
     primary_keyword = keyword_plan.title_keyword if keyword_plan else kw0
     guide_block = f"\n\n{template_guide}\n" if template_guide else ""
-    target_chars = resolve_naver_target_chars(template_guide)
+    topic_block = f"\n\n{topic_plan_prompt_block(topic_plan)}\n" if topic_plan else ""
+    target_chars, length_hint = resolve_content_lengths(
+        topic_plan,
+        template_guide=template_guide,
+    )
     has_template = bool(template_guide and template_guide.strip())
     min_paragraphs = "6~8" if has_template else "5"
+    if topic_plan and len(topic_plan.topics) >= 4:
+        min_paragraphs = f"{len(topic_plan.topics)}~{len(topic_plan.topics) + 2}"
     length_rule = (
-        f"공백 제외 약 {target_chars}자 목표(최소 1,500자, 최대 2,000자). "
+        f"공백 제외 약 {target_chars}자 목표(최소 1,500자, 최대 2,500자). "
         "원문·학원 프로필 사실로만 채울 것."
-        if has_template
+        if has_template or (topic_plan and topic_plan.total_stt_chars >= 2500)
         else "공백 제외 약 700자 이상"
     )
+    if length_hint:
+        length_rule = f"{length_rule} {length_hint}"
     evidence_block = ""
     if academy.evidence.strip():
         evidence_block = f"""
@@ -71,6 +82,9 @@ def optimize_to_naver_seo(
 
     user_prompt = f"""{academy_context_block(academy)}
 {guide_block}
+{topic_block}
+{source_fidelity_block()}
+{anti_summary_block()}
 {evidence_block}
 {keyword_density_block(primary_keyword)}
 {strict_negative_block()}
@@ -87,26 +101,29 @@ def optimize_to_naver_seo(
 
 위 원본을 네이버 블로그 SEO용 JSON으로 작성하세요.
 필드는 title, body, keywords(문자열 배열), meta_description 입니다.
-- title: [지역키워드] + [레슨 곡명/실제 고민] + [해결·후기 톤]. 키워드만 나열 금지. 최대 58자. 학원명 최대 1회.
+- title: [지역키워드] + [오늘 레슨 연습명/주제] + [레슨 일지 톤]. 키워드만 나열·허구 후기형 금지. 최대 58자. 학원명 최대 1회.
   예) "{title_example}"
 - body (짧게 쓰지 말 것):
   · 단락 최소 {min_paragraphs}개, {length_rule}
-  · STT/메모 포인트마다: 현장 상황 1문장 + 코칭 지시·관찰 3문장 이상(한 줄 요약 금지). 클립·주제당 최소 1단락
+  · [STT 주제 구조]의 각 heading마다 최소 1단락. key_points **각각**을 별도 문장으로 포함(요약 2~3문장 금지)
+  · 줄 번호·프렛·음·코드명·카포·CAGED 등 STT 용어를 그대로 사용
   · 대표 타깃 키워드 "{primary_keyword}": body에 완성된 문장 속 약 3회(서론·중반 레슨·마무리 위치). 키워드 나열·도배 금지
-  · '서론', '문제 제기', '결심', '마무리' 등 템플릿 단계명을 소제목·단락 제목으로 쓰지 말 것. 스토리형 문장으로 전개
+  · 3인칭 드라마(「한 수강생이…」)·허구 타임라인(3개월·첫/마지막 레슨)·참고 URL 스토리 재현 금지. 오늘 레슨 현장 기록체만
+  · 빈 서사 금지: 「수강생들은」「선생님은 강조하셨습니다」「한층 높일」「기회를 가졌습니다」 등 내용 없는 관찰·총평으로 단락 채우기 금지
   · 원문에 없는 코칭 디테일(횡격막·자세·장비 등)을 지어내지 말 것. 모르면 [학원 고정 사실]·연락처·통학 맥락으로 분량 보완
   · 총평·감상문 금지. 마지막도 구체 팁·다음 레슨 포인트로 끝내기
+  · 티스토리 원고 문장을 3어절 이상 연속 그대로 복사 금지. 같은 사실도 문장 구조·어순을 바꿔 재작성
   · [사진 추천: …] 서로 다른 단락 직후 3곳(한 줄에 장면 나열·맨 아래 몰기 금지)
   · 마크다운 금지. 연락처는 "전화: … / 주소: … / 웹사이트: https://…" 일반 텍스트
 - keywords: 지역 키워드 + 학원명·서비스·곡/문제 태그
-티스토리와 표현을 다르게 하되 STT 디테일은 네이버에 더 풍부하게 펼치세요."""
+티스토리와 표현을 다르게 하되 STT 디테일은 네이버에 더 풍부하게 펼치세요. [STT 주제 구조] 체크리스트 항목이 모두 반영되어야 합니다."""
 
     parsed = chat_json(
         api_key=api_key,
         model=model,
         system=get_naver_system_prompt(getattr(academy, "industry", "general")),
         user=user_prompt,
-        temperature=0.72,
+        temperature=0.45,
     )
 
     raw_body = str(

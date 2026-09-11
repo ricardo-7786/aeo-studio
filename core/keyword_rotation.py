@@ -8,6 +8,7 @@ from datetime import date
 
 from config.industry import INDUSTRY_META, normalize_industry
 from config.settings import AcademyProfile
+from core.lesson_subject import detect_lesson_subject
 
 # (정규식, 제목용 짧은 키워드)
 PROBLEM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -106,12 +107,19 @@ class KeywordPlan:
     title_keyword: str
     secondary_keywords: list[str]
     title_hint: str
+    lesson_subject: str = ""
 
     def prompt_block(self) -> str:
         problems = ", ".join(self.problem_keywords) if self.problem_keywords else "(원문에 구체 고민이 있으면 그 표현을 사용)"
         secondary = ", ".join(self.secondary_keywords) if self.secondary_keywords else "(없음)"
+        subject_line = (
+            f"- 이번 레슨 과목(필수 고정): {self.lesson_subject}\n"
+            f"- 다른 과목(보컬↔기타 등) 키워드·코칭·연습명을 섞지 말 것. 원문 STT에 없는 과목 용어 금지.\n"
+            if self.lesson_subject
+            else ""
+        )
         return f"""[키워드 로테이션 — 이번 발행]
-- 학원 본점 지역(본문에 1회 이상, 제목 남용 금지): {self.home_area or '(미지정)'}
+{subject_line}- 학원 본점 지역(본문에 1회 이상, 제목 남용 금지): {self.home_area or '(미지정)'}
 - 이번 글 제목·리드 지역 키워드(필수): {self.focus_area}
 - 제목 핵심 키워드: {self.title_keyword}
 - STT에서 감지된 문제 키워드: {problems}
@@ -130,6 +138,8 @@ def build_keyword_plan(
     *,
     rotation_index: int | None = None,
     focus_area_override: str | None = None,
+    lesson_title: str = "",
+    target_keyword: str = "",
 ) -> KeywordPlan:
     areas = adjacent_areas_for(academy)
     home = infer_home_area(academy) or (areas[0] if areas else "")
@@ -152,7 +162,12 @@ def build_keyword_plan(
     problems = extract_problem_keywords(source_text)
     industry = normalize_industry(getattr(academy, "industry", "general"))
     meta = INDUSTRY_META[industry]
-    primary = (academy.services[0] if academy.services else meta["entity"]).strip() or meta["entity"]
+    primary = detect_lesson_subject(
+        academy,
+        source_text=source_text,
+        lesson_title=lesson_title,
+        target_keyword=target_keyword,
+    )
     suffix = {
         "education": "학원",
         "restaurant": "맛집",
@@ -179,4 +194,5 @@ def build_keyword_plan(
         title_keyword=title_keyword,
         secondary_keywords=secondary,
         title_hint=title_hint,
+        lesson_subject=primary,
     )

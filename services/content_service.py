@@ -6,9 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config.settings import Settings, load_settings
+from core.build_source import build_source_from_stt_only
+from core.draft_generator import transcribe_audio_paths
 from core.dual_channel import DualDraftResult, optimize_dual_channels
-from core.draft_generator import generate_draft_from_audio_files
 from core.keyword_rotation import KeywordPlan, build_keyword_plan
+from core.lesson_subject import detect_lesson_subject, resolve_template_keyword
+from core.stt_music_review import prepare_theory_stt_snippets, resolve_whisper_prompt
+from core.stt_topic import append_topic_plan_to_source, extract_stt_topic_plan
 from core.template.models import AeoTemplate
 from db.connection import is_db_configured
 from db.draft_repo import save_aeo_draft
@@ -69,49 +73,107 @@ def generate_dual_draft(
     cfg = settings or load_settings(business_key=business_key, industry_override=industry)
     profile = cfg.business
     title = lesson_title.strip() or "현장 기록"
+    kw = (target_keyword or "").strip()
+    memo = source_text.strip()
+    paths = [Path(p) for p in (audio_paths or []) if str(p).strip()]
 
     if not cfg.openai_api_key:
         raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
 
-    text = source_text.strip()
+    stt_snippets = []
+    stt_review = []
+    plan_source = memo
+
+    if paths:
+        rough_subject = detect_lesson_subject(
+            profile, lesson_title=title, target_keyword=kw
+        )
+        whisper_prompt = resolve_whisper_prompt(
+            rough_subject, academy_services=profile.services
+        )
+        stt_snippets = transcribe_audio_paths(
+            paths,
+            api_key=cfg.openai_api_key,
+            whisper_model=cfg.whisper_model,
+            whisper_language=cfg.whisper_language,
+            whisper_prompt=whisper_prompt,
+        )
+        if not stt_snippets:
+            raise ValueError(
+                "업로드된 음성에서 STT 결과를 얻지 못했습니다. "
+                "파일이 비어 있거나 형식을 확인하세요."
+            )
+        stt_snippets, stt_review, review_block = prepare_theory_stt_snippets(
+            stt_snippets,
+            subject=rough_subject,
+            lesson_title=title,
+            target_keyword=kw,
+            academy_profile=profile,
+        )
+        plan_source = build_source_from_stt_only(
+            lesson_title=title,
+            stt_snippets=stt_snippets,
+            key_coaching_points=memo,
+            academy_name=profile.name,
+        )
+        if review_block:
+            plan_source = f"{plan_source}\n\n{review_block}"
+
     preview_plan = build_keyword_plan(
         profile,
-        text,
+        plan_source,
         focus_area_override=focus_area,
+        lesson_title=title,
+        target_keyword=kw,
     )
-    template_keyword = (target_keyword or "").strip() or preview_plan.title_keyword
+    resolved_keyword = resolve_template_keyword(preview_plan, kw)
+
+    topic_plan = extract_stt_topic_plan(
+        plan_source,
+        api_key=cfg.openai_api_key,
+        model=cfg.openai_model,
+        stt_snippets=stt_snippets or None,
+    )
+    if topic_plan:
+        plan_source = append_topic_plan_to_source(plan_source, topic_plan)
 
     template_guide, template_obj = resolve_template_guide(
         use_template=use_template,
-        target_keyword=template_keyword,
+        target_keyword=resolved_keyword,
         template_channel=template_channel,
         manual_urls=manual_reference_urls,
         force_refresh=force_template_refresh,
         settings=cfg,
     )
-    paths = [Path(p) for p in (audio_paths or []) if str(p).strip()]
 
     if paths:
-        draft = generate_draft_from_audio_files(
-            audio_paths=paths,
-            lesson_title=title,
-            academy=profile,
+        draft = optimize_dual_channels(
+            plan_source,
+            profile,
             api_key=cfg.openai_api_key,
             model=cfg.openai_model,
-            whisper_model=cfg.whisper_model,
-            whisper_language=cfg.whisper_language,
-            key_coaching_points=text,
+            stt_snippets=stt_snippets,
             template_guide=template_guide,
+            keyword_plan=preview_plan,
             focus_area=focus_area,
+            lesson_title=title,
+            target_keyword=resolved_keyword,
+            topic_plan=topic_plan,
+            stt_review=stt_review or None,
         )
-    elif text.replace(" ", ""):
+    elif memo.replace(" ", ""):
         draft = optimize_dual_channels(
-            text,
+            plan_source,
             profile,
             api_key=cfg.openai_api_key,
             model=cfg.openai_model,
             template_guide=template_guide,
+            keyword_plan=preview_plan,
             focus_area=focus_area,
+            lesson_title=title,
+            target_keyword=resolved_keyword,
+            topic_plan=topic_plan,
+            stt_review=stt_review or None,
         )
     else:
         raise ValueError("현장 메모, 음성 파일 업로드, 또는 앱 내 녹음 중 하나 이상을 입력하세요.")

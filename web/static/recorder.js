@@ -7,6 +7,9 @@
   const stopBtn = document.getElementById("rec-stop-btn");
   const statusEl = document.getElementById("rec-status");
   const sourceText = document.getElementById("source_text");
+  const codaLessonId = document.getElementById("coda_lesson_id");
+  const codaRecordingUrls = document.getElementById("coda_recording_urls");
+  const codaJson = document.getElementById("coda_json");
 
   if (!form || !fileInput) return;
 
@@ -70,7 +73,17 @@
   function hasAnyInput() {
     const text = (sourceText?.value || "").trim();
     const uploads = (fileInput.files?.length || 0) > 0;
-    return Boolean(text) || uploads || recordedClips.length > 0;
+    const codaLesson = (codaLessonId?.value || "").trim();
+    const codaUrls = (codaRecordingUrls?.value || "").trim();
+    const codaJsonText = (codaJson?.value || "").trim();
+    return (
+      Boolean(text) ||
+      uploads ||
+      recordedClips.length > 0 ||
+      Boolean(codaLesson) ||
+      Boolean(codaUrls) ||
+      Boolean(codaJsonText)
+    );
   }
 
   fileInput.addEventListener("change", renderUploadList);
@@ -125,7 +138,7 @@
     mergeFilesIntoInput();
     if (!hasAnyInput()) {
       event.preventDefault();
-      alert("텍스트, 음성 업로드, 또는 녹음 중 하나 이상을 입력하세요.");
+      alert("현장 메모, CODA 레슨/URL, 음성 업로드, 또는 앱 녹음 중 하나 이상을 입력하세요.");
     }
   });
 })();

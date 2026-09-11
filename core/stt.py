@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import requests
 from openai import OpenAI
 
+from core.audio_prep import ensure_whisper_ready
 from core.input_parser import SourceContent, make_source
 
 SUPPORTED_EXTENSIONS = {
@@ -28,6 +29,7 @@ def transcribe_audio(
     api_key: str,
     model: str = "whisper-1",
     language: str = "ko",
+    prompt: str | None = None,
 ) -> str:
     """로컬 레슨 음성 메모를 한국어 텍스트로 변환."""
     if not api_key:
@@ -41,17 +43,24 @@ def transcribe_audio(
             f"지원하지 않는 형식입니다 ({p.suffix}). "
             f"지원: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
-    if p.stat().st_size > 25 * 1024 * 1024:
-        raise ValueError("Whisper API는 파일당 25MB 이하만 지원합니다.")
 
-    client = OpenAI(api_key=api_key)
-    with p.open("rb") as audio_file:
-        result = client.audio.transcriptions.create(
-            model=model,
-            file=audio_file,
-            language=language,
-            response_format="text",
-        )
+    use_path, temp_paths = ensure_whisper_ready(p)
+    try:
+        client = OpenAI(api_key=api_key)
+        kwargs: dict = {
+            "model": model,
+            "file": None,
+            "language": language,
+            "response_format": "text",
+        }
+        if prompt and prompt.strip():
+            kwargs["prompt"] = prompt.strip()[:800]
+        with use_path.open("rb") as audio_file:
+            kwargs["file"] = audio_file
+            result = client.audio.transcriptions.create(**kwargs)
+    finally:
+        for tmp in temp_paths:
+            tmp.unlink(missing_ok=True)
 
     text = (result if isinstance(result, str) else str(result)).strip()
     if not text:
@@ -65,6 +74,7 @@ def transcribe_audio_url(
     api_key: str,
     model: str = "whisper-1",
     language: str = "ko",
+    prompt: str | None = None,
 ) -> str:
     """원격 오디오 URL → Whisper STT (CODA 레슨 녹음 URL용)."""
     if not api_key:
@@ -73,34 +83,28 @@ def transcribe_audio_url(
     res = requests.get(audio_url, timeout=120)
     res.raise_for_status()
     buf = res.content
-    if len(buf) > 24 * 1024 * 1024:
-        raise ValueError("오디오가 너무 큽니다 (25MB 제한). 짧은 포인트 녹음을 사용하세요.")
 
     pathname = urlparse(audio_url).path
     ext = pathname.rsplit(".", 1)[-1] if "." in pathname else "webm"
-    filename = f"lesson-clip.{ext}"
-    mime = {
-        "mp3": "audio/mpeg",
-        "mpeg": "audio/mpeg",
-        "m4a": "audio/mp4",
-        "wav": "audio/wav",
-    }.get(ext.lower(), "audio/webm")
+    if ext.lower() not in {e.lstrip(".") for e in SUPPORTED_EXTENSIONS}:
+        ext = "webm"
 
-    client = OpenAI(api_key=api_key)
-    from io import BytesIO
+    import tempfile
 
-    bio = BytesIO(buf)
-    bio.name = filename  # type: ignore[attr-defined]
-    result = client.audio.transcriptions.create(
-        model=model,
-        file=(filename, bio, mime),
-        language=language,
-        response_format="text",
-    )
-    text = (result if isinstance(result, str) else str(result)).strip()
-    if not text:
-        raise ValueError("STT 결과가 비어 있습니다.")
-    return text
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
+        tmp.write(buf)
+        local_path = Path(tmp.name)
+
+    try:
+        return transcribe_audio(
+            local_path,
+            api_key=api_key,
+            model=model,
+            language=language,
+            prompt=prompt,
+        )
+    finally:
+        local_path.unlink(missing_ok=True)
 
 
 def transcribe_many(
