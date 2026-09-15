@@ -30,49 +30,73 @@ def format_rank_telegram(
     excel_name: str = "",
     brand: str = "OMA",
 ) -> str:
-    """텔레그램용 짧은 요약 (4096자 제한 대비)."""
+    """텔레그램용 — 원장이 바로 읽히는 쉬운 요약."""
     from datetime import date
 
-    exposed = sum(1 for r in results if r.get("exposed") == "O")
-    hidden = sum(1 for r in results if r.get("exposed") == "X")
     urgent = [r for r in results if r.get("action") == "1순위_즉시대응"]
     weekly = [r for r in results if r.get("action") == "주간_2~3편후보"]
+    ok_list = [
+        r
+        for r in results
+        if r.get("exposed") == "O"
+        and r.get("action") not in {"1순위_즉시대응", "주간_2~3편후보", "재실행"}
+    ]
+    hidden = [r for r in results if r.get("exposed") == "X"]
 
     lines = [
-        f"📍 {brand} 플레이스 순위 점검",
-        f"날짜: {date.today().isoformat()}",
-        f"전체 {len(results)} · 노출 O {exposed} · X {hidden}",
-        f"즉시대응 {len(urgent)} · 주간후보 {len(weekly)}",
+        f"[{brand}]",
+        "네이버 플레이스 순위 주간 점검",
+        f"날짜 {date.today().isoformat()} · 키워드 {len(results)}개",
+        "",
+        "※ 이건 블로그 순위가 아니라,",
+        "   지도/플레이스에 학원이 보이는지 본 결과입니다.",
         "",
     ]
+
+    lines.append("—— 지금 손볼 것 ——")
     if urgent:
-        lines.append("🚨 즉시대응")
-        for r in urgent[:12]:
-            conf = r.get("confidence") or ""
-            lines.append(
-                f"· {r.get('keyword')} — {r.get('rank')}"
-                + (f" ({conf})" if conf else "")
-            )
-        if len(urgent) > 12:
-            lines.append(f"· …외 {len(urgent) - 12}개")
+        lines.append("① 우선 대응 (대표 키워드가 약함)")
+        lines.append("   → 플레이스 소식·사진·리뷰 보강, 또는 관련 글 리뉴얼")
+        for r in urgent[:10]:
+            lines.append(f"   · {r.get('keyword')}: {r.get('rank')}")
         lines.append("")
-    if weekly:
-        lines.append("📝 주간 후보 (상위)")
-        for r in weekly[:8]:
-            lines.append(f"· {r.get('keyword')} — {r.get('rank')}")
+    else:
+        lines.append("① 우선 대응: 없음")
         lines.append("")
 
-    lines.append("유지/관찰")
-    for r in results:
-        if r.get("action") in {"1순위_즉시대응", "주간_2~3편후보", "재실행"}:
-            continue
-        if r.get("exposed") == "O":
-            lines.append(f"· {r.get('keyword')} — {r.get('rank')}")
-    if excel_name:
+    if weekly:
+        lines.append("② 이번 주~여유 있을 때 (글 1~2편이면 충분)")
+        for r in weekly[:8]:
+            lines.append(f"   · {r.get('keyword')}: {r.get('rank')}")
         lines.append("")
-        lines.append(f"엑셀: {excel_name}")
+    else:
+        lines.append("② 여유 후보: 없음")
+        lines.append("")
+
+    lines.append("—— 괜찮은 것 ——")
+    if ok_list:
+        lines.append("플레이스에 잘 보이는 키워드")
+        for r in ok_list[:10]:
+            lines.append(f"   · {r.get('keyword')}: {r.get('rank')}")
+    else:
+        lines.append("해당 없음")
     lines.append("")
-    lines.append("웹: /ranks 에서 캡처·리뉴얼 확인")
+
+    if hidden and not urgent:
+        lines.append("—— 안 보인 키워드 ——")
+        for r in hidden[:8]:
+            lines.append(f"   · {r.get('keyword')}: {r.get('rank')}")
+        lines.append("")
+
+    lines.append("—— 다음에 할 일 ——")
+    if urgent:
+        lines.append("1) 위 ① 키워드부터 처리")
+        lines.append("2) 자세한 캡처는 GitHub Actions 결과물(Artifacts) 또는 맥 /ranks")
+    else:
+        lines.append("급할 건 없습니다. 주 1회 점검만 유지하세요.")
+    if excel_name:
+        lines.append(f"(파일명: {excel_name})")
+
     text = "\n".join(lines)
     return text[:4000]
 
