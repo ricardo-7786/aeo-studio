@@ -232,7 +232,7 @@ def _build_post_structure(
 ) -> PostStructure:
     char_count = _char_count(body)
     qa = _guess_qa_patterns(body)
-    excerpt = body[:500] + ("…" if len(body) > 500 else "")
+    excerpt = body[:2000] + ("…" if len(body) > 2000 else "")
     if char_count < MIN_BODY_CHARS:
         excerpt = (
             f"[본문 추출 {char_count}자 — {source}. "

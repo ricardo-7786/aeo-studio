@@ -8,3 +8,7 @@ output/
 *.egg-info/
 dist/
 build/
+logs/
+captures/
+rank_result_*.xlsx
+

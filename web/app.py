@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -55,6 +55,9 @@ if _coda_origins:
 app.include_router(api_v1_router)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+_captures_dir = ROOT / "captures"
+_captures_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/captures", StaticFiles(directory=str(_captures_dir)), name="captures")
 
 
 def _db_required() -> None:
@@ -78,12 +81,62 @@ def _ctx(request: Request, **extra):
 
 
 def _render(request: Request, name: str, *, status_code: int = 200, **extra):
+    if name == "ranks.html":
+        extra.setdefault("telegram_ok", _telegram_configured())
+        extra.setdefault("telegram_msg", None)
+        extra.setdefault("schedule", _rank_schedule_status())
     return templates.TemplateResponse(
         request,
         name,
         _ctx(request, **extra),
         status_code=status_code,
     )
+
+
+def _telegram_configured() -> bool:
+    try:
+        from core.telegram_notify import telegram_enabled
+
+        return telegram_enabled()
+    except Exception:
+        return False
+
+
+def _rank_schedule_status() -> dict:
+    """launchd 스케줄 상태 (표시용)."""
+    import os
+    from pathlib import Path
+
+    weekday_raw = (os.getenv("RANK_SCHEDULE_WEEKDAY") or "mon").strip().lower()
+    labels = {
+        "sun": "일",
+        "0": "일",
+        "mon": "월",
+        "1": "월",
+        "tue": "화",
+        "2": "화",
+        "wed": "수",
+        "3": "수",
+        "thu": "목",
+        "4": "목",
+        "fri": "금",
+        "5": "금",
+        "sat": "토",
+        "6": "토",
+    }
+    hour = int(os.getenv("RANK_SCHEDULE_HOUR", "9") or 9)
+    minute = int(os.getenv("RANK_SCHEDULE_MINUTE", "0") or 0)
+    limit = (os.getenv("RANK_SCHEDULE_LIMIT") or "0").strip()
+    plist = Path.home() / "Library" / "LaunchAgents" / "com.aeo.rank-weekly.plist"
+    return {
+        "installed": plist.is_file(),
+        "weekday_label": labels.get(weekday_raw, weekday_raw),
+        "hour": f"{hour:02d}",
+        "minute": minute,
+        "time_label": f"{hour:02d}:{minute:02d}",
+        "limit_label": "전체" if not limit or limit == "0" else f"{limit}개",
+        "log_hint": str(ROOT / "logs" / "rank_weekly.out.log"),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -101,6 +154,259 @@ async def index(request: Request):
         businesses=businesses,
         drafts_count=drafts_count,
         posts_count=posts_count,
+    )
+
+
+def _list_rank_excels(limit: int = 10) -> list[str]:
+    files = sorted(ROOT.glob("rank_result_*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [p.name for p in files[:limit]]
+
+
+def _shot_url(screenshot: str) -> str:
+    """captures/... 상대경로 → /captures/... URL."""
+    if not screenshot:
+        return ""
+    p = Path(screenshot)
+    try:
+        rel = p.resolve().relative_to((ROOT / "captures").resolve())
+        return f"/captures/{rel.as_posix()}"
+    except ValueError:
+        s = screenshot.replace("\\", "/")
+        if "captures/" in s:
+            return "/" + s[s.index("captures/") :]
+        return ""
+
+
+@app.get("/ranks", response_class=HTMLResponse)
+async def ranks_page(request: Request):
+    from scripts.naver_place_rank import KEYWORDS
+
+    return _render(
+        request,
+        "ranks.html",
+        results=None,
+        summary=None,
+        urgent_list=None,
+        excel_name=None,
+        error=None,
+        renewal=None,
+        keywords=KEYWORDS,
+        recent_excels=_list_rank_excels(),
+    )
+
+
+@app.post("/ranks/run", response_class=HTMLResponse)
+async def ranks_run(
+    request: Request,
+    limit: int = Form(10),
+    channel: str = Form("chrome"),
+    notify_telegram: str = Form(""),
+):
+    import asyncio
+    from datetime import date
+
+    from scripts.naver_place_rank import BRAND_MAIN, KEYWORDS, run_check, save_excel
+
+    limit = max(1, min(int(limit or 10), len(KEYWORDS)))
+    channel = (channel or "chrome").strip()
+    if channel not in {"chrome", "chromium", "msedge"}:
+        channel = "chrome"
+
+    today = date.today().isoformat()
+    out_dir = ROOT / "captures" / today
+
+    def _job():
+        return run_check(
+            keywords=KEYWORDS[:limit],
+            out_dir=out_dir,
+            headed=False,
+            delay_min=2.0,
+            delay_max=4.0,
+            channel=channel,
+        )
+
+    try:
+        results = await asyncio.to_thread(_job)
+    except SystemExit as exc:
+        return _render(
+            request,
+            "ranks.html",
+            status_code=400,
+            results=None,
+            summary=None,
+            urgent_list=None,
+            excel_name=None,
+            renewal=None,
+            keywords=KEYWORDS,
+            error=str(exc) or "브라우저 실행에 실패했습니다.",
+            recent_excels=_list_rank_excels(),
+            telegram_ok=_telegram_configured(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _render(
+            request,
+            "ranks.html",
+            status_code=400,
+            results=None,
+            summary=None,
+            urgent_list=None,
+            excel_name=None,
+            renewal=None,
+            keywords=KEYWORDS,
+            error=f"점검 실패: {exc}",
+            recent_excels=_list_rank_excels(),
+            telegram_ok=_telegram_configured(),
+        )
+
+    excel_name = f"rank_result_{today}.xlsx"
+    save_excel(results, ROOT / excel_name)
+
+    for r in results:
+        r["shot_url"] = _shot_url(str(r.get("screenshot") or ""))
+
+    summary = {
+        "total": len(results),
+        "exposed": sum(1 for r in results if r.get("exposed") == "O"),
+        "hidden": sum(1 for r in results if r.get("exposed") == "X"),
+        "urgent": sum(1 for r in results if r.get("action") == "1순위_즉시대응"),
+        "weekly": sum(1 for r in results if r.get("action") == "주간_2~3편후보"),
+    }
+    urgent_list = [r for r in results if r.get("action") == "1순위_즉시대응"]
+
+    telegram_msg = None
+    want_tg = str(notify_telegram or "").strip().lower() in {"1", "on", "true", "yes", "y"}
+    if want_tg:
+        from core.telegram_notify import notify_rank_results, telegram_enabled
+
+        if not telegram_enabled():
+            telegram_msg = "텔레그램 미설정 — .env에 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 필요"
+        else:
+            out = notify_rank_results(
+                results, excel_name=excel_name, brand=BRAND_MAIN
+            )
+            telegram_msg = (
+                "텔레그램 알림 전송 완료"
+                if out.get("ok")
+                else f"텔레그램 실패: {out.get('error')}"
+            )
+
+    return _render(
+        request,
+        "ranks.html",
+        results=results,
+        summary=summary,
+        urgent_list=urgent_list,
+        excel_name=excel_name,
+        renewal=None,
+        keywords=KEYWORDS,
+        error=None,
+        recent_excels=_list_rank_excels(),
+        telegram_ok=_telegram_configured(),
+        telegram_msg=telegram_msg,
+    )
+
+
+@app.post("/ranks/renewal", response_class=HTMLResponse)
+async def ranks_renewal(
+    request: Request,
+    keyword: str = Form(...),
+    group: str = Form(""),
+    rank_note: str = Form(""),
+    lesson_memo: str = Form(""),
+    source_url: str = Form(""),
+):
+    from scripts.naver_place_rank import KEYWORD_GROUPS, KEYWORDS
+    from core.renewal_draft import generate_renewal_draft, related_keywords_for
+
+    kw = (keyword or "").strip()
+    if not kw:
+        return _render(
+            request,
+            "ranks.html",
+            status_code=400,
+            results=None,
+            summary=None,
+            urgent_list=None,
+            excel_name=None,
+            renewal=None,
+            keywords=KEYWORDS,
+            error="키워드를 선택하세요.",
+            recent_excels=_list_rank_excels(),
+        )
+
+    cfg = load_settings()
+    if not cfg.openai_api_key:
+        return _render(
+            request,
+            "ranks.html",
+            status_code=400,
+            results=None,
+            summary=None,
+            urgent_list=None,
+            excel_name=None,
+            renewal=None,
+            keywords=KEYWORDS,
+            error="OPENAI_API_KEY가 없습니다.",
+            recent_excels=_list_rank_excels(),
+        )
+
+    grp = (group or "").strip() or KEYWORD_GROUPS.get(kw, "")
+    related = related_keywords_for(kw, grp, KEYWORDS, KEYWORD_GROUPS)
+    url = (source_url or "").strip()
+
+    try:
+        renewal = generate_renewal_draft(
+            keyword=kw,
+            academy=cfg.business,
+            api_key=cfg.openai_api_key,
+            model=cfg.openai_model,
+            group=grp,
+            related_keywords=related,
+            rank_note=rank_note,
+            lesson_memo=lesson_memo,
+            source_url=url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _render(
+            request,
+            "ranks.html",
+            status_code=400,
+            results=None,
+            summary=None,
+            urgent_list=None,
+            excel_name=None,
+            renewal=None,
+            keywords=KEYWORDS,
+            error=f"리뉴얼 초안 실패: {exc}",
+            recent_excels=_list_rank_excels(),
+        )
+
+    return _render(
+        request,
+        "ranks.html",
+        results=None,
+        summary=None,
+        urgent_list=None,
+        excel_name=None,
+        renewal=renewal,
+        keywords=KEYWORDS,
+        error=None,
+        recent_excels=_list_rank_excels(),
+    )
+
+
+@app.get("/ranks/download/{filename}")
+async def ranks_download(filename: str):
+    name = Path(filename).name
+    if not name.startswith("rank_result_") or not name.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+    path = ROOT / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+    return FileResponse(
+        path,
+        filename=name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 

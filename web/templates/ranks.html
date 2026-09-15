@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}순위 점검 — AEO Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>네이버 플레이스·검색 순위 점검</h2>
+  <p class="hint">
+    OMA / 오엠에이 브랜드가 키워드 검색 상위 플레이스에 보이는지 확인합니다.
+    화정 좌표 고정 + 지도 폴백으로 정밀도를 높였습니다.
+    <strong>주 1회 자동</strong>은 Mac 스케줄(launchd) + 텔레그램으로 받을 수 있습니다.
+    네이버 비공식 자동화라 차단·오탐이 날 수 있습니다.
+  </p>
+  <form method="post" action="/ranks/run" id="rank-form">
+    <label>점검 개수
+      <select name="limit">
+        <option value="3">3개 (빠른 테스트)</option>
+        <option value="10" selected>10개</option>
+        <option value="30">전체 30개 (2~3분)</option>
+      </select>
+    </label>
+    <label>브라우저
+      <select name="channel">
+        <option value="chrome" selected>시스템 Chrome (macOS 13 권장)</option>
+        <option value="chromium">Playwright Chromium (mac14+)</option>
+        <option value="msedge">Edge</option>
+      </select>
+    </label>
+    <label class="hint" style="display:flex;align-items:center;gap:0.5rem;margin:0.75rem 0">
+      <input type="checkbox" name="notify_telegram" value="1" {% if telegram_ok %}checked{% endif %}>
+      점검 후 텔레그램으로 요약 받기
+      {% if telegram_ok %}
+      <span>(설정됨)</span>
+      {% else %}
+      <span>— .env에 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 필요</span>
+      {% endif %}
+    </label>
+    <p class="hint">실행 중에는 이 페이지가 끝날 때까지 기다려 주세요. 새로고침하지 마세요. 알림은 <strong>주 1회 자동</strong>이 기본 추천입니다.</p>
+    <button type="submit" class="btn" id="rank-submit">점검 시작</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>주 1회 자동 알림 (텔레그램)</h2>
+  <p><strong>권장: GitHub Actions</strong> — Mac이 꺼져 있어도 매주 월요일 09:00(KST) 자동 실행</p>
+  <ol class="hint">
+    <li>GitHub 레포 → Settings → Secrets and variables → Actions</li>
+    <li><code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_CHAT_ID</code> 등록</li>
+    <li>최신 코드 푸시 후 Actions → <strong>Rank weekly</strong> → Run workflow 로 테스트</li>
+  </ol>
+  <p class="hint">
+    로컬 Mac 스케줄(launchd)도 가능하지만, 그때는 Mac이 켜져 있어야 합니다.
+    {% if schedule %}
+    (로컬 상태: {% if schedule.installed %}설치됨{% else %}미설치{% endif %}
+    · .env 기준 {{ schedule.weekday_label }} {{ schedule.time_label }})
+    {% endif %}
+  </p>
+</div>
+
+{% if telegram_msg %}
+<div class="alert {% if '완료' in telegram_msg %}ok{% else %}warn{% endif %}">{{ telegram_msg }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>기존 글 리뉴얼 초안</h2>
+  <p class="hint">
+    네이버에 예전에 올린 글 <strong>링크를 넣으면</strong> 제목·본문을 읽어,
+    <strong>이미 있는 내용은 빼고</strong> 짧은 업데이트만 만듭니다.
+    자동 발행은 하지 않습니다 — 복붙 후 수정 발행만 하시면 됩니다.
+  </p>
+  <form method="post" action="/ranks/renewal" id="renewal-form">
+    <label>키워드
+      <select name="keyword" required>
+        <option value="">선택</option>
+        {% for k in keywords or [] %}
+        <option value="{{ k }}" {% if renewal and renewal.keyword == k %}selected{% endif %}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>기존 글 URL (권장)
+      <input type="url" name="source_url" placeholder="https://blog.naver.com/아이디/글번호" value="{{ renewal.source_url if renewal else '' }}">
+    </label>
+    <label>그룹 (비우면 자동)
+      <input type="text" name="group" placeholder="예: G4_화정과목" value="{{ renewal.group if renewal else '' }}">
+    </label>
+    <label>순위 메모 (선택)
+      <input type="text" name="rank_note" placeholder="예: 점검 결과 10위 권외 / 즉시대응">
+    </label>
+    <label>최근 레슨·현장 메모 (품질에 가장 중요)
+      <textarea name="lesson_memo" rows="4" placeholder="예: 이번 주 성인 취미 문의↑ / 손 모양·박자부터 점검&#10;비우면 기존 글과 안 겹치는 짧은 포인트만 자동 생성"></textarea>
+    </label>
+    <button type="submit" class="btn" id="renewal-submit">리뉴얼 초안 만들기</button>
+  </form>
+</div>
+
+{% if error %}
+<div class="alert warn">{{ error }}</div>
+{% endif %}
+
+{% if renewal %}
+<div class="card" id="renewal-result">
+  <h2>리뉴얼 초안 — {{ renewal.keyword }}</h2>
+  {% if renewal.source_url %}
+  <p>
+    대상 글:
+    <a href="{{ renewal.source_url }}" target="_blank" rel="noopener">{{ renewal.source_url }}</a>
+    {% if renewal.existing_title %}· 기존 제목: <strong>{{ renewal.existing_title }}</strong>{% endif %}
+    {% if renewal.existing_char_count %}· 추출 {{ renewal.existing_char_count }}자{% endif %}
+  </p>
+  {% endif %}
+  {% if renewal.fetch_error %}
+  <div class="alert warn">{{ renewal.fetch_error }}</div>
+  {% elif renewal.source_url and renewal.fetch_ok %}
+  <p class="hint">기존 글을 읽어 반영했습니다. 아래 블록을 그 글 수정 화면에 붙이세요.</p>
+  {% endif %}
+  {% if renewal.related_keywords %}
+  <p class="hint">같은 그룹 키워드(1타 N피): {{ renewal.related_keywords | join(', ') }}</p>
+  {% endif %}
+
+  {% if renewal.already_covered %}
+  <p class="hint"><strong>기존 글에 이미 있어서 제외한 내용:</strong> {{ renewal.already_covered | join(' · ') }}</p>
+  {% endif %}
+  {% if renewal.style_match %}
+  <p class="hint"><strong>맞춘 문체:</strong> {{ renewal.style_match | join(' · ') }}</p>
+  {% endif %}
+  {% if renewal.paste_anchor %}
+  <p class="hint"><strong>붙일 위치:</strong> {{ renewal.paste_anchor }}</p>
+  {% endif %}
+  {% if renewal.bridge_note %}
+  <p class="hint"><strong>아래 본문과 연결:</strong> {{ renewal.bridge_note }}</p>
+  {% endif %}
+  {% if not renewal.memo_used %}
+  <p class="hint">현장 메모 없이 생성됨. 다음엔 레슨 메모를 한 줄만 넣어도 더 자연스럽습니다.</p>
+  {% endif %}
+
+  <p><strong>제목 수정안</strong></p>
+  <ol>
+    {% for t in renewal.title_suggestions %}
+    <li>{{ t }}</li>
+    {% endfor %}
+  </ol>
+
+  <p><strong>복붙 블록</strong> — 소제목 줄은 붙여넣은 뒤 <em>굵게</em> 처리하세요</p>
+  <div class="copy-box" id="renewal-paste">{{ renewal.paste_block }}</div>
+  <button type="button" class="btn secondary" onclick="copyText('renewal-paste')">복붙 블록 복사</button>
+
+  {% if renewal.photo_checklist %}
+  <p style="margin-top:1rem"><strong>사진 체크</strong> (본문에 글자로 붙이지 말고, 해당 장면 사진만 삽입)</p>
+  <ul>
+    {% for p in renewal.photo_checklist %}
+    <li>{{ p }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if renewal.hashtags %}
+  <p><strong>태그</strong> {{ renewal.hashtags | join(' ') }}</p>
+  {% endif %}
+
+  {% if renewal.howto %}
+  <p class="hint" style="margin-top:1rem"><strong>하는 법</strong><br>{{ renewal.howto | e | replace('\n', '<br>') | safe }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="alert ok">
+  점검 완료 · 전체 {{ summary.total }} · 노출 O {{ summary.exposed }} · X {{ summary.hidden }}
+  · 즉시대응 {{ summary.urgent }} · 주간후보 {{ summary.weekly }}
+  {% if excel_name %}
+  · <a href="/ranks/download/{{ excel_name }}">엑셀 다운로드</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if results %}
+<div class="card">
+  <h2>결과</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>No</th>
+        <th>키워드</th>
+        <th>노출</th>
+        <th>순위</th>
+        <th>신뢰</th>
+        <th>감지상위</th>
+        <th>그룹</th>
+        <th>권장액션</th>
+        <th>캡처</th>
+        <th>리뉴얼</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr class="{% if r.action == '1순위_즉시대응' %}row-urgent{% elif r.exposed == 'X' %}row-warn{% endif %}">
+        <td>{{ r.no }}</td>
+        <td>{{ r.keyword }}</td>
+        <td><span class="badge">{{ r.exposed }}</span></td>
+        <td>
+          {{ r.rank }}
+          {% if r.organic_rank %}<br><span class="hint">광고제외 {{ r.organic_rank }}</span>{% endif %}
+          {% if r.matched_name %}<br><span class="hint">{{ r.matched_name }}</span>{% endif %}
+        </td>
+        <td>{{ r.confidence or '—' }}{% if r.source %}<br><span class="hint">{{ r.source }}</span>{% endif %}</td>
+        <td class="hint" style="max-width:14rem;font-size:0.85em">{{ r.top10_sample or '—' }}</td>
+        <td class="hint">{{ r.group }}</td>
+        <td>{{ r.action }}</td>
+        <td>
+          {% if r.shot_url %}
+          <a href="{{ r.shot_url }}" target="_blank" rel="noopener">보기</a>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <form method="post" action="/ranks/renewal" style="margin:0">
+            <input type="hidden" name="keyword" value="{{ r.keyword }}">
+            <input type="hidden" name="group" value="{{ r.group }}">
+            <input type="hidden" name="rank_note" value="노출 {{ r.exposed }} / 순위 {{ r.rank }} / {{ r.action }}">
+            <button type="submit" class="btn small secondary">초안</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if urgent_list %}
+<div class="card">
+  <h2>즉시 대응 권장</h2>
+  <ul>
+    {% for r in urgent_list %}
+    <li>
+      <strong>{{ r.keyword }}</strong> — {{ r.rank }} / {{ r.group }}
+      <form method="post" action="/ranks/renewal" style="display:inline">
+        <input type="hidden" name="keyword" value="{{ r.keyword }}">
+        <input type="hidden" name="group" value="{{ r.group }}">
+        <input type="hidden" name="rank_note" value="즉시대응 / {{ r.rank }}">
+        <button type="submit" class="btn small">리뉴얼 초안</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="hint">같은 그룹은 글 1편에 묶거나, 기존 글 리뉴얼 1회면 충분합니다.</p>
+</div>
+{% endif %}
+{% endif %}
+
+{% if recent_excels %}
+<div class="card">
+  <h2>이전 리포트</h2>
+  <ul>
+    {% for name in recent_excels %}
+    <li><a href="/ranks/download/{{ name }}">{{ name }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('rank-form')?.addEventListener('submit', function () {
+  const btn = document.getElementById('rank-submit');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '점검 중… (완료까지 대기)';
+  }
+});
+document.getElementById('renewal-form')?.addEventListener('submit', function () {
+  const btn = document.getElementById('renewal-submit');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '초안 생성 중…';
+  }
+});
+function copyText(id) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.innerText).then(() => alert('복사했습니다.'));
+}
+</script>
+{% endblock %}
