@@ -81,8 +81,15 @@ def main() -> int:
     if out.get("ok"):
         print("텔레그램 전송 완료")
         return 0
-    print(f"텔레그램 실패: {out.get('error')}")
-    return 3
+    err = out.get("error") or "unknown"
+    print(f"텔레그램 실패: {err}")
+    print(
+        "→ Secrets의 TELEGRAM_CHAT_ID 확인. "
+        "봇에게 /start 한 뒤 "
+        "https://api.telegram.org/bot<토큰>/getUpdates 의 chat.id 를 넣으세요."
+    )
+    # 순위 점검은 끝났으므로 CI는 실패로 두지 않음 (알림만 재설정하면 됨)
+    return 0
 
 
 if __name__ == "__main__":
